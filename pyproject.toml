@@ -1,0 +1,26 @@
+[project]
+name = "alphafold2-ablation-study"
+version = "0.1.0"
+description = "Ablation studies on AlphaFold2 inputs for sampling alternative protein conformations"
+requires-python = ">=3.12"
+dependencies = [
+    "absl-py>=2.4.0",
+    "biopython>=1.87",
+    "ipykernel>=7.2.0",
+    "matplotlib>=3.10.9",
+    "numpy>=2.4.4",
+    "pandas>=3.0.2",
+    "prody>=2.6.1",
+    "requests>=2.33.1",
+    "scikit-learn>=1.8.0",
+    "scipy>=1.17.1",
+    "seaborn>=0.13.2",
+    "tmtools>=0.3.0",
+    "tqdm>=4.67.3",
+]
+
+[dependency-groups]
+dev = [
+    "jupyter>=1.1.1",
+    "nbconvert>=7.17.1",
+]
