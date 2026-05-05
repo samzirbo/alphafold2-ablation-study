@@ -211,6 +211,7 @@ def download_msas(metadata: dict) -> None:
 
         query_seq = fasta_path.read_text().splitlines()[1].strip()
         prefix = str(DATA_DIR / name / "mmseqs2")
+        mmseqs2_dir = Path(f"{prefix}_env")
 
         a3m = run_mmseqs2(
             query_seq,
@@ -225,6 +226,10 @@ def download_msas(metadata: dict) -> None:
 
         depth = a3m.count("\n>")
         out_path.write_text(a3m)
+
+        if mmseqs2_dir.exists():
+            shutil.rmtree(mmseqs2_dir)
+
         console.print(f"  [green]ok[/]        {name} — {depth} sequences")
 
     console.print("  [green]done[/]")
