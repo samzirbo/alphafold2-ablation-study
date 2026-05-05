@@ -8,9 +8,10 @@ for each protein defined in data/metadata.json.
 import argparse
 import json
 import shutil
-import textwrap
 import time
 from pathlib import Path
+from colabfold.colabfold import run_mmseqs2
+
 
 import requests
 from rich.console import Console
@@ -64,18 +65,8 @@ def fetch_fasta(uniprot_id: str) -> str | None:
     return r.text if r else None
 
 
-def extract_sequence(fasta: str) -> str:
-    return "".join(
-        line.strip()
-        for line in fasta.splitlines()
-        if line and not line.startswith(">")
-    )
-
-
-def truncate_sequence(fasta: str, truncation: list[list[int]]) -> str:
+def truncate_sequence(sequence: str, truncation: list[list[int]]) -> str:
     """Remove 1-indexed inclusive residue ranges."""
-    sequence = extract_sequence(fasta)
-
     if not truncation:
         return sequence
 
@@ -108,20 +99,19 @@ def download_sequences(metadata: dict) -> None:
             console.print(f"  [red bold]FAILED[/]    {name} ({uid}): download failed")
             raise RuntimeError(f"Failed to fetch FASTA for {name} ({uid})")
 
-        header = fasta.splitlines()[0]
-        sequence = extract_sequence(fasta)
-        truncated = header + "\n" + textwrap.fill(
-            truncate_sequence(fasta, info["truncation"]), width=60
-        )
+        header = fasta.splitlines()[0].strip()
+        sequence = "".join(fasta.splitlines()[1:]).strip()
+        truncated = truncate_sequence(sequence, info["truncation"])
 
         seq_len = len(sequence)
         if seq_len != info["sequence_length"]:
             raise ValueError(f"{name}: raw length {seq_len} != expected {info['sequence_length']}")
 
-        raw_path.write_text(fasta)
-        truncated_path.write_text(truncated)
+        raw_path.write_text(header + "\n" + sequence)
+        truncated_path.write_text(header + "\n" + truncated)
 
         removed = sum(end - start + 1 for start, end in info["truncation"])
+        assert len(truncated) == info["sequence_length"] - removed
         trunc_info = f", truncated {removed} residues" if removed else ""
         console.print(f"  [green]ok[/]        {name} ({uid}) — {seq_len} aa{trunc_info}")
 
@@ -205,8 +195,39 @@ def download_structures(metadata: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Main
+# MSA (via ColabFold MMseqs2)
 # ---------------------------------------------------------------------------
+
+def download_msas(metadata: dict) -> None:
+    console.print("\n[bold]Downloading MSAs...[/]")
+    for name, info in metadata.items():
+        fasta_path = DATA_DIR / name / "sequence_truncated.fasta"
+        if not fasta_path.exists():
+            raise FileNotFoundError(f"{fasta_path} not found — run sequence download first")
+
+        out_path = DATA_DIR / name / "msa.a3m"
+        if out_path.exists():
+            console.print(f"  [yellow]overwrite[/] {name}")
+
+        query_seq = fasta_path.read_text().splitlines()[1].strip()
+        prefix = str(DATA_DIR / name / "mmseqs2")
+
+        a3m = run_mmseqs2(
+            query_seq,
+            prefix,
+            user_agent="alphafold2-ablation-study",
+        )[0]
+
+        first_seq = a3m.splitlines()[1].strip()
+        if first_seq != query_seq:
+            console.print(f"  [red bold]MISMATCH[/] {name}: first MSA sequence != query")
+            raise ValueError(f"{name}: MSA query sequence mismatch")
+
+        depth = a3m.count("\n>")
+        out_path.write_text(a3m)
+        console.print(f"  [green]ok[/]        {name} — {depth} sequences")
+
+    console.print("  [green]done[/]")
 
 def main():
     parser = argparse.ArgumentParser(
@@ -217,6 +238,12 @@ def main():
         action="store_true",
         help="Remove all downloaded data and re-download.",
     )
+    parser.add_argument(
+        "--fasta",
+        choices=["raw", "truncated"],
+        default="truncated",
+        help="Which FASTA to use as MSA query (default: truncated).",
+    )
     args = parser.parse_args()
 
     metadata = load_metadata()
@@ -226,6 +253,7 @@ def main():
 
     download_sequences(metadata)
     download_structures(metadata)
+    download_msas(metadata)
 
 
 if __name__ == "__main__":
