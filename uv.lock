@@ -51,7 +51,10 @@ source = { virtual = "." }
 dependencies = [
     { name = "absl-py" },
     { name = "biopython" },
+    { name = "colabfold", extra = ["alphafold-minus-jax"] },
     { name = "ipykernel" },
+    { name = "jax" },
+    { name = "jaxlib" },
     { name = "matplotlib" },
     { name = "numpy" },
     { name = "pandas" },
@@ -64,13 +67,6 @@ dependencies = [
     { name = "tqdm" },
 ]
 
-[package.optional-dependencies]
-colabfold = [
-    { name = "colabfold", extra = ["alphafold-minus-jax"] },
-    { name = "jax" },
-    { name = "jaxlib" },
-]
-
 [package.dev-dependencies]
 dev = [
     { name = "jupyter" },
@@ -81,10 +77,10 @@ dev = [
 requires-dist = [
     { name = "absl-py", specifier = ">=1.4.0,<2.0.0" },
     { name = "biopython", specifier = ">=1.84,<1.86" },
-    { name = "colabfold", extras = ["alphafold-minus-jax"], marker = "extra == 'colabfold'", git = "https://github.com/sokrypton/ColabFold" },
+    { name = "colabfold", extras = ["alphafold-minus-jax"], git = "https://github.com/sokrypton/ColabFold" },
     { name = "ipykernel", specifier = ">=7.2.0" },
-    { name = "jax", marker = "extra == 'colabfold'", specifier = ">=0.5.2" },
-    { name = "jaxlib", marker = "extra == 'colabfold'", specifier = ">=0.5.2" },
+    { name = "jax", specifier = ">=0.5.2" },
+    { name = "jaxlib", specifier = ">=0.5.2" },
     { name = "matplotlib", specifier = ">=3.8.4" },
     { name = "numpy", specifier = ">=2.0.2" },
     { name = "pandas", specifier = ">=2.2.2" },
@@ -96,7 +92,6 @@ requires-dist = [
     { name = "tmtools", specifier = ">=0.3.0" },
     { name = "tqdm", specifier = ">=4.62.2" },
 ]
-provides-extras = ["colabfold"]
 
 [package.metadata.requires-dev]
 dev = [
