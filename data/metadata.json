@@ -1,0 +1,255 @@
+{
+    "LAT1": {
+        "name": "Large neutral amino acids transporter small subunit 1",
+        "uniprot_id": "Q01650",
+        "sequence_length": 507,
+        "category": "transporter",
+        "group": "benchmark",
+        "conformations": {
+            "state_1": {
+                "label": "IF",
+                "pdb_id": "6IRS",
+                "chain": "B"
+            },
+            "state_2": {
+                "label": "OF",
+                "pdb_id": "7DSQ",
+                "chain": "B"
+            }
+        },
+        "truncation": [[1, 49]]
+    },
+    "ZnT8": {
+        "name": "Proton-coupled zinc antiporter",
+        "uniprot_id": "Q8IWU4",
+        "sequence_length": 369,
+        "category": "transporter",
+        "group": "benchmark",
+        "conformations": {
+            "state_1": {
+                "label": "IF",
+                "pdb_id": "6XPF",
+                "chain": "A"
+            },
+            "state_2": {
+                "label": "OF",
+                "pdb_id": "6XPD",
+                "chain": "A"
+            }
+        },
+        "truncation": []
+    },
+    "MCT1": {
+        "name": "Monocarboxylate transporter 1",
+        "uniprot_id": "P53985",
+        "sequence_length": 500,
+        "category": "transporter",
+        "group": "benchmark",
+        "conformations": {
+            "state_1": {
+                "label": "IF",
+                "pdb_id": "7DA5",
+                "chain": "A"
+            },
+            "state_2": {
+                "label": "OF",
+                "pdb_id": "7CKR",
+                "chain": "A"
+            }
+        },
+        "truncation": []
+    },
+    "STP10": {
+        "name": "Sugar transport protein 10",
+        "uniprot_id": "Q9LT15",
+        "sequence_length": 514,
+        "category": "transporter",
+        "group": "benchmark",
+        "conformations": {
+            "state_1": {
+                "label": "IF",
+                "pdb_id": "7AAR",
+                "chain": "A"
+            },
+            "state_2": {
+                "label": "OF",
+                "pdb_id": "7AAQ",
+                "chain": "A"
+            }
+        },
+        "truncation": []
+    },
+    "ASCT2": {
+        "name": "Neutral amino acid transporter",
+        "uniprot_id": "Q15758",
+        "sequence_length": 541,
+        "category": "transporter",
+        "group": "benchmark",
+        "conformations": {
+            "state_1": {
+                "label": "IF",
+                "pdb_id": "6RVX",
+                "chain": "A"
+            },
+            "state_2": {
+                "label": "OF",
+                "pdb_id": "7BCQ",
+                "chain": "A"
+            }
+        },
+        "truncation": []
+    },
+    "CGRPR": {
+        "name": "Calcitonin gene-related peptide type 1 receptor",
+        "uniprot_id": "Q16602",
+        "sequence_length": 461,
+        "category": "GPCR",
+        "group": "benchmark",
+        "conformations": {
+            "state_1": {
+                "label": "inactive",
+                "pdb_id": "7KNT",
+                "chain": "R"
+            },
+            "state_2": {
+                "label": "active",
+                "pdb_id": "6UVA",
+                "chain": "R"
+            }
+        },
+        "truncation": [[1, 131], [401, 461]]
+    },
+    "PTH1R": {
+        "name": "Parathyroid hormone peptide receptor",
+        "uniprot_id": "Q03431",
+        "sequence_length": 593,
+        "category": "GPCR",
+        "group": "benchmark",
+        "conformations": {
+            "state_1": {
+                "label": "inactive",
+                "pdb_id": "6FJ3",
+                "chain": "A",
+                "notes": "PDB uses chain A, without [auth R] annotation, despite being labeled as R in del Alamo et al."
+            },
+            "state_2": {
+                "label": "active",
+                "pdb_id": "6NBF",
+                "chain": "R"
+            }
+        },
+        "truncation": [[1, 175], [492, 593]]
+    },
+    "FZD7": {
+        "name": "Frizzled-7",
+        "uniprot_id": "O75084",
+        "sequence_length": 574,
+        "category": "GPCR",
+        "group": "benchmark",
+        "conformations": {
+            "state_1": {
+                "label": "inactive",
+                "pdb_id": "6BD4",
+                "chain": "A",
+                "notes": "FZD4 structure used as inactive reference for the nearly identical FZD7. PDB uses chain A, without [auth R] annotation, despite being labeled as R in del Alamo et al. "
+            },
+            "state_2": {
+                "label": "active",
+                "pdb_id": "7EVW",
+                "chain": "R",
+                "notes": "PDB 8YY8 supersedes original deposition 7EVW, however, we keep 7EVW_R for the main benchmark to reproduce the del Alamo reference set."
+            }
+        },
+        "truncation": [[1, 247]]
+    },
+    "SERT": {
+        "name": "Sodium-dependent serotonin transporter",
+        "uniprot_id": "P31645",
+        "sequence_length": 630,
+        "category": "transporter",
+        "group": "control",
+        "conformations": {
+            "state_1": {
+                "label": "IF",
+                "pdb_id": "6DZZ",
+                "chain": "A",
+                "in_training_set": false
+
+            },
+            "state_2": {
+                "label": "OF",
+                "pdb_id": "5I6X",
+                "chain": "A",
+                "in_training_set": true
+            }
+        },
+        "truncation": []
+    },
+    "PfMATE": {
+        "name": "MATE family efflux transporter",
+        "uniprot_id": "Q8U2X0",
+        "sequence_length": 461,
+        "category": "transporter",
+        "group": "control",
+        "conformations": {
+            "state_1": {
+                "label": "IF",
+                "pdb_id": "6FHZ",
+                "chain": "A",
+                "in_training_set": false
+            },
+            "state_2": {
+                "label": "OF",
+                "pdb_id": "3VVN",
+                "chain": "A",
+                "in_training_set": true
+            }
+        },
+        "truncation": []
+    },
+    "MurJ": {
+        "name": "Lipid II flippase MurJ",
+        "uniprot_id": "B7IE18",
+        "sequence_length": 475,
+        "category": "transporter",
+        "group": "control",
+        "conformations": {
+            "state_1": {
+                "label": "IF",
+                "pdb_id": "5T77",
+                "chain": "A",
+                "in_training_set": true
+            },
+            "state_2": {
+                "label": "OF",
+                "pdb_id": "6NC9",
+                "chain": "A",
+                "in_training_set": false
+            }
+        },
+        "truncation": []
+    },
+    "CCR5": {
+        "name": "C-C chemokine receptor type 5",
+        "uniprot_id": "P51681",
+        "sequence_length": 352,
+        "category": "GPCR",
+        "group": "control",
+        "conformations": {
+            "state_1": {
+                "label": "inactive",
+                "pdb_id": "5UIW",
+                "chain": "A",
+                "in_training_set": true,
+                "notes": "PDB uses chain A, without [auth R] annotation, despite being labeled as R in del Alamo et al."
+            },
+            "state_2": {
+                "label": "active",
+                "pdb_id": "7F1Q",
+                "chain": "R",
+                "in_training_set": false
+            }
+        },
+        "truncation": []
+    }
+}
