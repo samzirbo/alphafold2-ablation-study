@@ -243,12 +243,6 @@ def main():
         action="store_true",
         help="Remove all downloaded data and re-download.",
     )
-    parser.add_argument(
-        "--fasta",
-        choices=["raw", "truncated"],
-        default="truncated",
-        help="Which FASTA to use as MSA query (default: truncated).",
-    )
     args = parser.parse_args()
 
     metadata = load_metadata()
