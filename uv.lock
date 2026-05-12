@@ -47,7 +47,7 @@ wheels = [
 [[package]]
 name = "alphafold2-ablation-study"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "absl-py" },
     { name = "biopython" },
