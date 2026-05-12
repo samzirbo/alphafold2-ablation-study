@@ -20,6 +20,7 @@ Usage:
 from __future__ import annotations
 
 import os
+
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 os.environ["GRPC_VERBOSITY"] = "ERROR"
 
@@ -28,7 +29,13 @@ import sys
 from pathlib import Path
 
 from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, MofNCompleteColumn
+from rich.progress import (
+    BarColumn,
+    MofNCompleteColumn,
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
@@ -55,7 +62,7 @@ RUN_CONFIG = {
 
     "num_relax": 0,
 
-    "keep_existing_results": True,
+    "keep_existing_results": False, # we have our own way of tracking existing predictions
 
     # DEFAULT PARAMETERS - can be overridden by CLI
     "msa_mode": "custom",
@@ -111,6 +118,7 @@ def resolve_result_dir(job: str, drive: str | None) -> Path:
     """Return the result directory, mounting Google Drive if requested."""
     if drive is not None:
         from src.utils.drive import get_drive_result_dir
+
         drive_path = drive if drive != "" else None
         result_dir = get_drive_result_dir(job, drive_path)
     else:
@@ -119,7 +127,7 @@ def resolve_result_dir(job: str, drive: str | None) -> Path:
     if result_dir.exists():
         console.print(
             f"  [yellow]warning[/] Result directory already exists: [dim]{result_dir}[/]\n"
-            f"          Proteins with a .done.txt marker will be skipped."
+            f"          Existing model/seed predictions will be skipped."
         )
     else:
         result_dir.mkdir(parents=True)
@@ -182,6 +190,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return p.parse_args(argv)
 
 
+def prediction_exists(result_dir: Path, protein: str, model_num: int, seed: int) -> bool:
+    """Check whether a prediction PDB already exists for this model/seed."""
+    tag = f"alphafold2_model_{model_num}_seed_{seed:03d}"
+    return any(result_dir.glob(f"{protein}_unrelaxed_*_{tag}.pdb"))
+
+
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
 
@@ -208,12 +222,19 @@ def main(argv: list[str] | None = None) -> None:
     model_type = set_model_type(False, RUN_CONFIG["model_type"])
     download_alphafold_params(model_type)
 
-    total_models = args.num_models * args.num_seeds
+    models = list(range(1, args.num_models + 1))
+    seeds = list(range(RUN_CONFIG["random_seed"], RUN_CONFIG["random_seed"] + args.num_seeds))
+    total_per_protein = len(models) * len(seeds)
 
     console.print()
     for protein in proteins:
         input_path = resolve_input_file(protein)
         queries, is_complex = get_queries(input_path)
+
+        protein_result_dir = result_dir / protein
+        protein_result_dir.mkdir(exist_ok=True)
+
+        skipped = 0
 
         progress = Progress(
             SpinnerColumn(),
@@ -225,36 +246,58 @@ def main(argv: list[str] | None = None) -> None:
         )
 
         with progress:
-            task = progress.add_task(protein, total=total_models)
+            task = progress.add_task(protein, total=total_per_protein)
 
-            def prediction_callback(protein_obj, length, prediction_result, input_features, mode):
-                progress.advance(task)
+            for model_num in models:
+                for seed in seeds:
+                    if prediction_exists(protein_result_dir, protein, model_num, seed):
+                        skipped += 1
+                        console.print(f"  [blue]skipped[/]    {protein} model_{model_num} seed_{seed:03d}")
+                        progress.advance(task)
+                        continue
 
-            run(
-                queries=queries,
-                result_dir=result_dir,
-                is_complex=is_complex,
-                # --- fixed (from RUN_CONFIG) ---
-                model_type=model_type,
-                random_seed=RUN_CONFIG["random_seed"],
-                use_dropout=RUN_CONFIG["use_dropout"],
-                use_templates=RUN_CONFIG["use_templates"],
-                num_recycles=RUN_CONFIG["num_recycles"],
-                recycle_early_stop_tolerance=RUN_CONFIG["recycle_early_stop_tolerance"],
-                num_relax=RUN_CONFIG["num_relax"],
-                keep_existing_results=RUN_CONFIG["keep_existing_results"],
-                user_agent="colabfold/alphafold2-ablation-study",
-                # --- overridable (from CLI) ---
-                msa_mode=args.msa_mode,
-                max_msa=args.max_msa,
-                num_models=args.num_models,
-                num_seeds=args.num_seeds,
-                prediction_callback=prediction_callback,
+                    try:
+                        run(
+                            queries=queries,
+                            result_dir=protein_result_dir,
+                            is_complex=is_complex,
+                            model_type=model_type,
+                            # -- fixed as we are only running one model per seed --
+                            num_models=1,
+                            model_order=[model_num],
+                            num_seeds=1,
+                            random_seed=seed,
+                            # --- fixed ---
+                            use_dropout=RUN_CONFIG["use_dropout"],
+                            use_templates=RUN_CONFIG["use_templates"],
+                            num_recycles=RUN_CONFIG["num_recycles"],
+                            recycle_early_stop_tolerance=RUN_CONFIG["recycle_early_stop_tolerance"],
+                            num_relax=RUN_CONFIG["num_relax"],
+                            keep_existing_results=False,
+                            user_agent="colabfold/alphafold2-ablation-study",
+                            # --- overridable ---
+                            msa_mode=args.msa_mode,
+                            max_msa=args.max_msa,
+                        )
+                        console.print(f"  [green]finished[/]        {protein} model_{model_num} seed_{seed:03d}")
+                    except Exception as e:
+                        console.print(
+                            f"  [red bold]FAILED[/] model_{model_num} seed_{seed:03d}: {e}"
+                        )
+
+                    progress.advance(task)
+
+        if skipped:
+            console.print(
+                f"  [green]runs completed[/]        {protein}  "
+                f"[dim]({skipped}/{total_per_protein} skipped)[/]"
             )
+        else:
+            console.print(f"  [green]runs completed[/]        {protein}")
 
-        console.print(f"  [green]ok[/]        {protein}")
-
-    console.print(f"\n[bold green]Job '{args.job}' complete.[/] Results in [dim]{result_dir}[/]\n")
+    console.print(
+        f"\n[bold green]Job '{args.job}' complete.[/] Results in [dim]{result_dir}[/]\n"
+    )
 
 
 if __name__ == "__main__":
