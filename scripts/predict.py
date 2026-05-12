@@ -20,15 +20,17 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import logging
 import sys
 from pathlib import Path
+
+from rich.console import Console
+from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, MofNCompleteColumn
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
 RESULTS_DIR = PROJECT_ROOT / "results"
 
-logger = logging.getLogger(__name__)
+console = Console()
 
 PROTEINS = [
     "LAT1", "ZnT8", "MCT1", "STP10", "ASCT2",
@@ -93,10 +95,11 @@ def resolve_proteins(protein: str | None) -> list[str]:
             missing.append(p)
 
     if missing:
-        logger.warning("Missing input files for: %s", missing)
+        console.print(f"  [yellow]warning[/] Missing input files for: {missing}")
 
     if not available:
-        sys.exit("No proteins found in data/ with .a3m or .fasta files.")
+        console.print("  [red bold]FAILED[/] No proteins found in data/ with .a3m or .fasta files.")
+        sys.exit(1)
 
     return available
 
@@ -106,15 +109,15 @@ def resolve_result_dir(job: str, drive: str | None) -> Path:
     if drive is not None:
         from src.utils.drive import mount_drive, get_drive_result_dir
         mount_drive()
-        result_dir = get_drive_result_dir(job, drive)
+        drive_path = drive if drive != "" else None
+        result_dir = get_drive_result_dir(job, drive_path)
     else:
         result_dir = RESULTS_DIR / job
 
     if result_dir.exists():
-        logger.warning(
-            "Result directory already exists: %s. "
-            "Proteins with a .done.txt marker will be skipped.",
-            result_dir,
+        console.print(
+            f"  [yellow]warning[/] Result directory already exists: [dim]{result_dir}[/]\n"
+            f"          Proteins with a .done.txt marker will be skipped."
         )
     else:
         result_dir.mkdir(parents=True)
@@ -142,7 +145,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     p.add_argument(
         "--drive",
-        type=str,
+        nargs="?",
+        const="",
         default=None,
         help="Save results to Google Drive. Optionally provide a custom Drive path.",
     )
@@ -187,47 +191,69 @@ def main(argv: list[str] | None = None) -> None:
     setup_logging(result_dir / "log.txt")
 
     proteins = resolve_proteins(args.input)
-    logger.info("Job '%s': proteins=%s", args.job, proteins)
-    logger.info("Results directory: %s", result_dir)
-    logger.info(
-        "CLI overrides: msa_mode=%s, max_msa=%s, num_models=%d, num_seeds=%d",
-        args.msa_mode, args.max_msa, args.num_models, args.num_seeds,
-    )
+
+    console.print(f"\n[bold]Running job: {args.job}[/]")
+    console.print(f"  proteins: {', '.join(proteins)}")
+    console.print(f"  results:  [dim]{result_dir}[/]")
+
+    cli_params = {"msa_mode": args.msa_mode, "max_msa": args.max_msa,
+                  "num_models": args.num_models, "num_seeds": args.num_seeds}
+    overrides = {k: v for k, v in cli_params.items() if v != RUN_CONFIG[k]}
+
+    if overrides:
+        console.print(f"  [yellow]overrides[/]: {overrides}")
 
     model_type = set_model_type(False, RUN_CONFIG["model_type"])
     download_alphafold_params(model_type)
 
-    for protein in proteins:
-        logger.info("--- Predicting %s ---", protein)
-        input_path = resolve_input_file(protein)
+    total_models = args.num_models * args.num_seeds
 
+    console.print()
+    for protein in proteins:
+        input_path = resolve_input_file(protein)
         queries, is_complex = get_queries(input_path)
 
-        run(
-            queries=queries,
-            result_dir=result_dir,
-            is_complex=is_complex,
-            # --- fixed (from RUN_CONFIG) ---
-            model_type=model_type,
-            random_seed=RUN_CONFIG["random_seed"],
-            use_dropout=RUN_CONFIG["use_dropout"],
-            use_templates=RUN_CONFIG["use_templates"],
-            num_recycles=RUN_CONFIG["num_recycles"],
-            recycle_early_stop_tolerance=RUN_CONFIG["recycle_early_stop_tolerance"],
-            num_relax=RUN_CONFIG["num_relax"],
-            save_all=RUN_CONFIG["save_all"],
-            keep_existing_results=RUN_CONFIG["keep_existing_results"],
-            user_agent="colabfold/alphafold2-ablation-study",
-            # --- overridable (from CLI) ---
-            msa_mode=args.msa_mode,
-            max_msa=args.max_msa,
-            num_models=args.num_models,
-            num_seeds=args.num_seeds,
+        progress = Progress(
+            SpinnerColumn(),
+            TextColumn(f"  {protein}"),
+            BarColumn(),
+            MofNCompleteColumn(),
+            TextColumn("models"),
+            console=console,
         )
 
-        logger.info("Done: %s", protein)
+        with progress:
+            task = progress.add_task(protein, total=total_models)
 
-    logger.info("Job '%s' complete. Results in %s", args.job, result_dir)
+            def prediction_callback(protein_obj, length, prediction_result, input_features, mode):
+                progress.advance(task)
+
+            run(
+                queries=queries,
+                result_dir=result_dir,
+                is_complex=is_complex,
+                # --- fixed (from RUN_CONFIG) ---
+                model_type=model_type,
+                random_seed=RUN_CONFIG["random_seed"],
+                use_dropout=RUN_CONFIG["use_dropout"],
+                use_templates=RUN_CONFIG["use_templates"],
+                num_recycles=RUN_CONFIG["num_recycles"],
+                recycle_early_stop_tolerance=RUN_CONFIG["recycle_early_stop_tolerance"],
+                num_relax=RUN_CONFIG["num_relax"],
+                save_all=RUN_CONFIG["save_all"],
+                keep_existing_results=RUN_CONFIG["keep_existing_results"],
+                user_agent="colabfold/alphafold2-ablation-study",
+                # --- overridable (from CLI) ---
+                msa_mode=args.msa_mode,
+                max_msa=args.max_msa,
+                num_models=args.num_models,
+                num_seeds=args.num_seeds,
+                prediction_callback=prediction_callback,
+            )
+
+        console.print(f"  [green]ok[/]        {protein}")
+
+    console.print(f"\n[bold green]Job '{args.job}' complete.[/] Results in [dim]{result_dir}[/]\n")
 
 
 if __name__ == "__main__":
