@@ -228,7 +228,7 @@ def main(argv: list[str] | None = None) -> None:
         queries, is_complex = get_queries(input_path)
 
         protein_result_dir = result_dir / protein
-        protein_result_dir.mkdir(exist_ok=True)
+        protein_result_dir.mkdir(parents=True, exist_ok=True)
 
         skipped = 0
 
