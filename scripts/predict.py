@@ -4,11 +4,14 @@ AlphaFold2 structure prediction via ColabFold.
 Thin CLI wrapper around colabfold.batch.run() tailored to the project's requirements.
 
 Usage:
-    # Run a single protein
+    # Run locally
     python scripts/predict.py --job baseline --input LAT1
 
-    # Run all proteins in the dataset
-    python scripts/predict.py --job baseline
+    # Run on Colab, save to Google Drive (default path)
+    python scripts/predict.py --job baseline --input LAT1 --drive
+
+    # Run on Colab, save to a custom Drive path
+    python scripts/predict.py --job baseline --drive /content/drive/MyDrive/my-folder/results
 
     # Override MSA depth
     python scripts/predict.py --job msa_depth_16 --input LAT1 --max-msa 16:32
@@ -98,6 +101,27 @@ def resolve_proteins(protein: str | None) -> list[str]:
     return available
 
 
+def resolve_result_dir(job: str, drive: str | None) -> Path:
+    """Return the result directory, mounting Google Drive if requested."""
+    if drive is not None:
+        from src.utils.drive import mount_drive, get_drive_result_dir
+        mount_drive()
+        result_dir = get_drive_result_dir(job, drive)
+    else:
+        result_dir = RESULTS_DIR / job
+
+    if result_dir.exists():
+        logger.warning(
+            "Result directory already exists: %s. "
+            "Proteins with a .done.txt marker will be skipped.",
+            result_dir,
+        )
+    else:
+        result_dir.mkdir(parents=True)
+
+    return result_dir
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
         description=__doc__,
@@ -116,6 +140,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="Protein name (e.g. 'LAT1'). If omitted, runs all available proteins.",
     )
+    p.add_argument(
+        "--drive",
+        type=str,
+        default=None,
+        help="Save results to Google Drive. Optionally provide a custom Drive path.",
+    )
 
     p.add_argument(
         "--msa-mode",
@@ -127,8 +157,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--max-msa",
         type=str,
         default=RUN_CONFIG["max_msa"],
-        help="MSA depth as 'max_seq:max_extra_seq' (e.g. '16:32'). "
-        "None uses model default (512:5120).",
+        help="MSA depth as 'max_seq:max_extra_seq' (e.g. '16:32').",
     )
     p.add_argument(
         "--num-models",
@@ -154,12 +183,12 @@ def main(argv: list[str] | None = None) -> None:
     from colabfold.download import download_alphafold_params
     from colabfold.utils import setup_logging
 
-    result_dir = RESULTS_DIR / args.job
-    result_dir.mkdir(parents=True, exist_ok=True)
+    result_dir = resolve_result_dir(args.job, args.drive)
     setup_logging(result_dir / "log.txt")
 
     proteins = resolve_proteins(args.input)
     logger.info("Job '%s': proteins=%s", args.job, proteins)
+    logger.info("Results directory: %s", result_dir)
     logger.info(
         "CLI overrides: msa_mode=%s, max_msa=%s, num_models=%d, num_seeds=%d",
         args.msa_mode, args.max_msa, args.num_models, args.num_seeds,
