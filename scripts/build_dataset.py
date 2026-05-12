@@ -88,10 +88,10 @@ def download_sequences(metadata: dict) -> None:
         out_dir = DATA_DIR / name
         out_dir.mkdir(parents=True, exist_ok=True)
 
-        raw_path = out_dir / "sequence_raw.fasta"
-        truncated_path = out_dir / "sequence_truncated.fasta"
+        raw_path = out_dir / f"{name}_raw.fasta"
+        fasta_path = out_dir / f"{name}.fasta"
 
-        if raw_path.exists():
+        if fasta_path.exists():
             console.print(f"  [yellow]overwrite[/] {name} ({uid})")
 
         fasta = fetch_fasta(uid)
@@ -107,8 +107,8 @@ def download_sequences(metadata: dict) -> None:
         if seq_len != info["sequence_length"]:
             raise ValueError(f"{name}: raw length {seq_len} != expected {info['sequence_length']}")
 
-        raw_path.write_text(header + "\n" + sequence)
-        truncated_path.write_text(header + "\n" + truncated)
+        raw_path.write_text(f">{name}\n{sequence}\n")
+        fasta_path.write_text(f">{name}\n{truncated}\n")
 
         removed = sum(end - start + 1 for start, end in info["truncation"])
         assert len(truncated) == info["sequence_length"] - removed
@@ -201,11 +201,11 @@ def download_structures(metadata: dict) -> None:
 def download_msas(metadata: dict) -> None:
     console.print("\n[bold]Downloading MSAs...[/]")
     for name, info in metadata.items():
-        fasta_path = DATA_DIR / name / "sequence_truncated.fasta"
+        fasta_path = DATA_DIR / name / f"{name}.fasta"
         if not fasta_path.exists():
             raise FileNotFoundError(f"{fasta_path} not found — run sequence download first")
 
-        out_path = DATA_DIR / name / "msa.a3m"
+        out_path = DATA_DIR / name / f"{name}.a3m"
         if out_path.exists():
             console.print(f"  [yellow]overwrite[/] {name}")
 
