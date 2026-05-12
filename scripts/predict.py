@@ -2,10 +2,18 @@
 AlphaFold2 structure prediction via ColabFold.
 
 Thin CLI wrapper around colabfold.batch.run() tailored to the project's requirements.
+Each (model, seed) combination is run individually so that completed predictions
+are automatically skipped on restart.
 
 Usage:
-    # Run locally
+    # Run a single protein
     python scripts/predict.py --job baseline --input LAT1
+
+    # Run multiple proteins
+    python scripts/predict.py --job baseline --input LAT1 ZnT8 MCT1
+
+    # Run all available proteins
+    python scripts/predict.py --job baseline
 
     # Run on Colab, save to Google Drive (default path)
     python scripts/predict.py --job baseline --input LAT1 --drive
@@ -86,25 +94,22 @@ def resolve_input_file(protein: str) -> Path | None:
     return None
 
 
-def resolve_proteins(protein: str | None) -> list[str]:
+def resolve_proteins(proteins: list[str] | None) -> list[str]:
     """Return a list of protein names to predict."""
-    if protein is not None:
-        protein_dir = DATA_DIR / protein
-        if not protein_dir.exists():
-            sys.exit(f"Protein directory not found: {protein_dir}")
-        if resolve_input_file(protein) is None:
-            sys.exit(f"No .a3m or .fasta file found in {protein_dir}")
-        return [protein]
+    candidates = proteins if proteins is not None else PROTEINS
 
     available = []
     missing = []
-    for p in PROTEINS:
-        if resolve_input_file(p) is not None:
-            available.append(p)
-        else:
+    for p in candidates:
+        protein_dir = DATA_DIR / p
+        if not protein_dir.exists():
             missing.append(p)
+        elif resolve_input_file(p) is None:
+            missing.append(p)
+        else:
+            available.append(p)
 
-    if missing:
+    if missing and proteins is None:
         console.print(f"  [yellow]warning[/] Missing input files for: {missing}")
 
     if not available:
@@ -150,15 +155,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument(
         "--input",
         type=str,
+        nargs="+",
         default=None,
-        help="Protein name (e.g. 'LAT1'). If omitted, runs all available proteins.",
+        help="One or more protein names (e.g. 'LAT1 ZnT8'). If omitted, runs all available proteins.",
     )
     p.add_argument(
         "--drive",
         nargs="?",
         const="",
         default=None,
-        help="Save results to Google Drive. Optionally provide a custom Drive path.",
+        help="Save results to Google Drive. Otherwise, save to results/<job>/. Optionally provide a custom Drive path.",
     )
 
     p.add_argument(
