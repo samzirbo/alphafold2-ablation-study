@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-DEFAULT_DRIVE_PATH = Path("/content/drive/MyDrive/alphafold2-ablation-study/results")
+DEFAULT_DRIVE_PATH = Path("/content/drive/MyDrive/Masters/Semester 3/AlphaFold2 Ablation Study/04_Results")
 
 
 def get_drive_result_dir(job: str, drive_path: str | None = None) -> Path:
