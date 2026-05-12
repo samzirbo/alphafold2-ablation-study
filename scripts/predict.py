@@ -15,11 +15,8 @@ Usage:
     # Run all available proteins
     python scripts/predict.py --job baseline
 
-    # Run on Colab, save to Google Drive (default path)
-    python scripts/predict.py --job baseline --input LAT1 --drive
-
-    # Run on Colab, save to a custom Drive path
-    python scripts/predict.py --job baseline --drive /content/drive/MyDrive/my-folder/results
+    # Save results to a custom path (e.g. Google Drive on Colab)
+    python scripts/predict.py --job baseline --input LAT1 --drive /content/drive/MyDrive/results
 
     # Override MSA depth
     python scripts/predict.py --job msa_depth_16 --input LAT1 --max-msa 16:32
@@ -120,14 +117,8 @@ def resolve_proteins(proteins: list[str] | None) -> list[str]:
 
 
 def resolve_result_dir(job: str, drive: str | None) -> Path:
-    """Return the result directory, mounting Google Drive if requested."""
-    if drive is not None:
-        from src.utils.drive import get_drive_result_dir
-
-        drive_path = drive if drive != "" else None
-        result_dir = get_drive_result_dir(job, drive_path)
-    else:
-        result_dir = RESULTS_DIR / job
+    """Return the result directory: --drive path if given, otherwise results/<job>/."""
+    result_dir = Path(drive) / job if drive else RESULTS_DIR / job
 
     if result_dir.exists():
         console.print(
@@ -161,10 +152,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     p.add_argument(
         "--drive",
-        nargs="?",
-        const="",
+        type=str,
         default=None,
-        help="Save results to Google Drive. Otherwise, save to results/<job>/. Optionally provide a custom Drive path.",
+        help="Save results to an external path (e.g. a mounted Google Drive directory).",
     )
 
     p.add_argument(
