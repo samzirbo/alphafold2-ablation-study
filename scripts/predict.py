@@ -242,7 +242,6 @@ def main(argv: list[str] | None = None) -> None:
                 num_recycles=RUN_CONFIG["num_recycles"],
                 recycle_early_stop_tolerance=RUN_CONFIG["recycle_early_stop_tolerance"],
                 num_relax=RUN_CONFIG["num_relax"],
-                save_all=RUN_CONFIG["save_all"],
                 keep_existing_results=RUN_CONFIG["keep_existing_results"],
                 user_agent="colabfold/alphafold2-ablation-study",
                 # --- overridable (from CLI) ---
