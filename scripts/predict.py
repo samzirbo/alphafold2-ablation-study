@@ -19,6 +19,10 @@ Usage:
 
 from __future__ import annotations
 
+import os
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
+os.environ["GRPC_VERBOSITY"] = "ERROR"
+
 import argparse
 import sys
 from pathlib import Path
@@ -51,7 +55,6 @@ RUN_CONFIG = {
 
     "num_relax": 0,
 
-    "save_all": True,
     "keep_existing_results": True,
 
     # DEFAULT PARAMETERS - can be overridden by CLI
