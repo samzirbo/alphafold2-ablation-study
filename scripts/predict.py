@@ -107,8 +107,7 @@ def resolve_proteins(protein: str | None) -> list[str]:
 def resolve_result_dir(job: str, drive: str | None) -> Path:
     """Return the result directory, mounting Google Drive if requested."""
     if drive is not None:
-        from src.utils.drive import mount_drive, get_drive_result_dir
-        mount_drive()
+        from src.utils.drive import get_drive_result_dir
         drive_path = drive if drive != "" else None
         result_dir = get_drive_result_dir(job, drive_path)
     else:
