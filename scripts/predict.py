@@ -67,8 +67,6 @@ RUN_CONFIG = {
 
     "num_relax": 0,
 
-    "keep_existing_results": False, # we have our own way of tracking existing predictions
-
     # DEFAULT PARAMETERS - can be overridden by CLI
     "msa_mode": "custom",
     "max_msa": "512:5120",
@@ -269,7 +267,7 @@ def main(argv: list[str] | None = None) -> None:
                             num_recycles=RUN_CONFIG["num_recycles"],
                             recycle_early_stop_tolerance=RUN_CONFIG["recycle_early_stop_tolerance"],
                             num_relax=RUN_CONFIG["num_relax"],
-                            keep_existing_results=False,
+                            keep_existing_results=False, # we have our own way of tracking existing predictions
                             user_agent="colabfold/alphafold2-ablation-study",
                             # --- overridable ---
                             msa_mode=args.msa_mode,
