@@ -1,20 +1,10 @@
-"""Google Drive authentication and file operations for Colab environments."""
+"""Google Drive utilities for Colab environments."""
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 
-logger = logging.getLogger(__name__)
-
-DEFAULT_DRIVE_PATH = Path("/content/drive/MyDrive/Masters/Semester 3/AlphaFold2 Ablation Study/04_Results")
-
-
-def mount_drive() -> None:
-    """Mount Google Drive in a Colab environment."""
-    from google.colab import drive
-    drive.mount("/content/drive")
-    logger.info("Google Drive mounted.")
+DEFAULT_DRIVE_PATH = Path("/content/drive/MyDrive/alphafold2-ablation-study/results")
 
 
 def get_drive_result_dir(job: str, drive_path: str | None = None) -> Path:
