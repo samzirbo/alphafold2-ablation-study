@@ -279,10 +279,12 @@ def main(argv: list[str] | None = None) -> None:
                             # --- overridable ---
                             msa_mode=args.msa_mode,
                             max_msa=args.max_msa,
-                            skip_output=["plots"] if i != 0 else ["plots", "msa"],
+                            skip_output=["plots"] if i == 0 else ["plots", "msa"],
                         )
 
-                        # Copy all PDB and scores files to the result directory
+                        # Re-ensure the target dir exists (refreshes Drive FUSE cache)
+                        protein_result_dir.mkdir(parents=True, exist_ok=True)
+
                         for f in tmp_path.glob("*.pdb"):
                             shutil.copy2(f, protein_result_dir / f.name)
                         for f in tmp_path.glob("*scores*.json"):
