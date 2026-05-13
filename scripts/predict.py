@@ -30,6 +30,7 @@ os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 os.environ["GRPC_VERBOSITY"] = "ERROR"
 
 import argparse
+import json
 import shutil
 import sys
 import tempfile
@@ -287,11 +288,14 @@ def main(argv: list[str] | None = None) -> None:
                         for f in tmp_path.glob("*scores*.json"):
                             shutil.copy2(f, protein_result_dir / f.name)
 
-                        # Save one msa file per protein
+                        # Save one msa and config file per protein
                         if i == 0:
                             a3m = tmp_path / f"{protein}.a3m"
                             if a3m.exists():
                                 shutil.copy2(a3m, protein_result_dir / a3m.name)
+                            config = tmp_path / "config.json"
+                            if config.exists():
+                                shutil.copy2(config, protein_result_dir / config.name)
 
                         console.print(f"  [green]finished[/]        {protein} model_{model_num} seed_{seed:03d}")
                     except Exception as e:
