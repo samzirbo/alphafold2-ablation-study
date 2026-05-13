@@ -30,7 +30,10 @@ os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 os.environ["GRPC_VERBOSITY"] = "ERROR"
 
 import argparse
+import shutil
 import sys
+import tempfile
+from itertools import product
 from pathlib import Path
 
 from rich.console import Console
@@ -242,18 +245,21 @@ def main(argv: list[str] | None = None) -> None:
         with progress:
             task = progress.add_task(protein, total=total_per_protein)
 
-            for model_num in models:
-                for seed in seeds:
-                    if prediction_exists(protein_result_dir, protein, model_num, seed):
-                        skipped += 1
-                        console.print(f"  [blue]skipped[/]    {protein} model_{model_num} seed_{seed:03d}")
-                        progress.advance(task)
-                        continue
+            for i, (model_num, seed) in enumerate(product(models, seeds)):
+                if prediction_exists(protein_result_dir, protein, model_num, seed):
+                    skipped += 1
+                    console.print(f"  [blue]skipped[/]    {protein} model_{model_num} seed_{seed:03d}")
+                    progress.advance(task)
+                    continue
 
+                # Write to a local staging dir to avoid Google Drive FUSE
+                # rename race conditions, then copy outputs to the final dir.
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    tmp_path = Path(tmpdir)
                     try:
                         run(
                             queries=queries,
-                            result_dir=protein_result_dir,
+                            result_dir=tmp_path,
                             is_complex=is_complex,
                             model_type=model_type,
                             # -- fixed as we are only running one model per seed --
@@ -272,14 +278,28 @@ def main(argv: list[str] | None = None) -> None:
                             # --- overridable ---
                             msa_mode=args.msa_mode,
                             max_msa=args.max_msa,
+                            skip_output=["plots"] if i != 0 else ["plots", "msa"],
                         )
+
+                        # Copy all PDB and scores files to the result directory
+                        for f in tmp_path.glob("*.pdb"):
+                            shutil.copy2(f, protein_result_dir / f.name)
+                        for f in tmp_path.glob("*scores*.json"):
+                            shutil.copy2(f, protein_result_dir / f.name)
+
+                        # Save one msa file per protein
+                        if i == 0:
+                            a3m = tmp_path / f"{protein}.a3m"
+                            if a3m.exists():
+                                shutil.copy2(a3m, protein_result_dir / a3m.name)
+
                         console.print(f"  [green]finished[/]        {protein} model_{model_num} seed_{seed:03d}")
                     except Exception as e:
                         console.print(
                             f"  [red bold]FAILED[/] model_{model_num} seed_{seed:03d}: {e}"
                         )
 
-                    progress.advance(task)
+                progress.advance(task)
 
         if skipped:
             console.print(
