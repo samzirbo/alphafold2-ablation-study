@@ -282,9 +282,6 @@ def main(argv: list[str] | None = None) -> None:
                             skip_output=["plots"] if i == 0 else ["plots", "msa"],
                         )
 
-                        # Re-ensure the target dir exists (refreshes Drive FUSE cache)
-                        protein_result_dir.mkdir(parents=True, exist_ok=True)
-
                         for f in tmp_path.glob("*.pdb"):
                             shutil.copy2(f, protein_result_dir / f.name)
                         for f in tmp_path.glob("*scores*.json"):
