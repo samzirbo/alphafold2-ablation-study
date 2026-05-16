@@ -8,12 +8,14 @@ dependencies = [
     "biopython>=1.84,<1.86",
     "colabfold[alphafold-minus-jax] @ git+https://github.com/sokrypton/ColabFold",
     "ipykernel>=7.2.0",
-    "jax>=0.4.26,<0.5",
-    "jaxlib>=0.4.26,<0.5",
+    "jax[cuda12]>=0.4.26,<0.5; sys_platform == 'linux'",
+    "jax>=0.4.26,<0.5; sys_platform != 'linux'",
     "matplotlib>=3.8.4",
     "numpy>=2.0.2",
     "pandas>=2.2.2",
     "prody>=2.6.1",
+    "py3Dmol>=2.0.1",
+    "pydrive2>=1.21.1",
     "requests>=2.26.0",
     "scikit-learn>=1.8.0",
     "scipy>=1.15.0",
@@ -21,6 +23,16 @@ dependencies = [
     "tmtools>=0.3.0",
     "tqdm>=4.62.2",
 ]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
 
 [dependency-groups]
 dev = [
