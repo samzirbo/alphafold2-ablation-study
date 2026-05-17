@@ -42,8 +42,11 @@ def calc_tm_score_folders(protein: str, nseq: int, reference_folder: str, target
     or
     output_file_name(protein, nseq, tm_OF, tm_IF) if conformational
     """
-    reference_files = os.listdir(reference_folder)
-    target_files = os.listdir(target_folder)
+    reference_folder = reference_folder + "/" if reference_folder[-1] != "/" else reference_folder
+    target_folder = target_folder + "/" if target_folder[-1] != "/" else target_folder
+
+    reference_files = [f for f in os.listdir(reference_folder) if f.endswith('.pdb') ]
+    target_files = [f for f in os.listdir(target_folder) if f.endswith('.pdb') ]
 
     results_df = pd.DataFrame()
 
@@ -108,23 +111,6 @@ def plot_tm_score(data_file: str, save_file_name: str = None, protein: str = Non
     )
 
     fig, ax = plt.subplots(figsize=(5, 5), dpi=300)
-
-    padding = 0.02
-
-    xmin = data[x_col_name].min()
-    xmax = data[x_col_name].max()
-
-    ymin = data[y_col_name].min()
-    ymax = data[y_col_name].max()
-
-    lower = min(xmin, ymin) - padding
-    upper = max(xmax, ymax) + padding
-
-    ax.set_xlim(lower, upper)
-    ax.set_ylim(lower, upper)
-
-    ax.set_aspect("equal")
-
     ax.grid(True, color="lightgray", linewidth=0.5, alpha=0.4)
 
     scatter = ax.scatter(
@@ -174,6 +160,8 @@ def plot_tm_score(data_file: str, save_file_name: str = None, protein: str = Non
 
     cbar.ax.minorticks_off()
     cbar.ax.tick_params(which="minor", length=0)
+
+    ax.set_aspect("auto", adjustable="box")
 
     if save_file_name is not None:
         plt.savefig(
