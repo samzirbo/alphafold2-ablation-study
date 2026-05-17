@@ -1,3 +1,4 @@
+import argparse
 import os
 
 import numpy as np
@@ -183,3 +184,61 @@ def plot_tm_score(data_file: str, save_file_name: str = None, protein: str = Non
 
     plt.show()
     plt.close()
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    calc_parser = subparsers.add_parser("calc", help="Calculate TM-scores and save CSV")
+    calc_parser.add_argument("--protein", type=str, required=True)
+    calc_parser.add_argument("--nseq", type=int, required=True)
+    calc_parser.add_argument("--reference_folder", type=str, required=True)
+    calc_parser.add_argument("--target_folder", type=str, required=True)
+    calc_parser.add_argument("--output_file", type=str, required=True)
+
+    plot_parser = subparsers.add_parser("plot", help="Plot TM-score results from CSV")
+    plot_parser.add_argument("--data_file", type=str, required=True)
+    plot_parser.add_argument("--save_file", type=str, default=None)
+    plot_parser.add_argument("--protein", type=str, default=None)
+
+    full_parser = subparsers.add_parser("all", help="Run calc + plot")
+    full_parser.add_argument("--protein", type=str, default=None)
+    full_parser.add_argument("--nseq", type=int, required=True)
+    full_parser.add_argument("--reference_folder", type=str, required=True)
+    full_parser.add_argument("--target_folder", type=str, required=True)
+    full_parser.add_argument("--output_file", type=str, required=True)
+    full_parser.add_argument("--save_file", type=str, default=None)
+
+    args = parser.parse_args()
+    if args.command == "calc":
+        calc_tm_score_folders(
+            protein=args.protein,
+            nseq=args.nseq,
+            reference_folder=args.reference_folder,
+            target_folder=args.target_folder,
+            output_file_name=args.output_file,
+        )
+    elif args.command == "plot":
+        plot_tm_score(
+            data_file=args.data_file,
+            save_file_name=args.save_file,
+            protein=args.protein,
+        )
+    elif args.command == "all":
+        calc_tm_score_folders(
+            protein=args.protein,
+            nseq=args.nseq,
+            reference_folder=args.reference_folder,
+            target_folder=args.target_folder,
+            output_file_name=args.output_file,
+        )
+        plot_tm_score(
+            data_file=args.output_file,
+            save_file_name=args.save_file,
+            protein=args.protein,
+        )
+
+
+if __name__ == "__main__":
+    main()
