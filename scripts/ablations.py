@@ -16,22 +16,22 @@ def get_tmp_dir() -> Path:
         TMP_DIR = Path(tempfile.mkdtemp(prefix="a3m_ablations_"))
     return TMP_DIR
 
-def random_row_column_masking(a3m_file: Path, seed=0, frac=0.1, row_column_switch="column", out_file: Path | None = None) -> Path:
+def random_row_column_masking(a3m_file: Path, seed=0, frac=0.1, row_or_col="column", out_file: Path | None = None) -> Path:
     """
     Creates a row- or column-masked a3m file.
-    
+
     Args:
         a3m_file (Path):            File to be masked.
         seed (int):                 Seed for the random masking.
         frac (float):               Fraction of rows or columns to be masked.
-        row_column_switch (str):    Switch to select row or column masking.
-        out-file (Path | None):     Path where the masked file should be written to. 
-                                    Written to a temporary file if None.           
+        row_or_col (str):           Switch to select row or column masking.
+        out-file (Path | None):     Path where the masked file should be written to.
+                                    Written to a temporary file if None.
 
     Returns:
         Path: Path to the masked file.
     """
-    if not 0.0 <= frac <= 1.0: 
+    if not 0.0 <= frac <= 1.0:
         raise ValueError("frac should be between 0.0 and 1.0")
     rng = np.random.default_rng(seed)
 
@@ -42,9 +42,9 @@ def random_row_column_masking(a3m_file: Path, seed=0, frac=0.1, row_column_switc
             records.append([lines[i], lines[i + 1].strip()])
         else:
             console.print(f"[red bold] Expected a header line starting with \">\" at position {i}. Instead line was {lines[i]}[/]")
-            raise RuntimeError(f"Failed to create {row_column_switch}-masked a3m file")
-    
-    if row_column_switch == "column":
+            raise RuntimeError(f"Failed to create {row_or_col}-masked a3m file")
+
+    if row_or_col == "column":
         n_cols = len(records[0][1])
         rand_cols = set(rng.choice(n_cols, int(n_cols * frac), replace=False))
 
@@ -64,7 +64,7 @@ def random_row_column_masking(a3m_file: Path, seed=0, frac=0.1, row_column_switc
                 raise RuntimeError("Failed to create column-masked a3m file")
             records[i][1] = "".join(seq)
 
-    elif row_column_switch == "row":
+    elif row_or_col == "row":
         n_rows = len(records)
         rand_rows = set(rng.choice(range(1, n_rows), int((n_rows - 1) * frac), replace=False))
 
@@ -85,7 +85,7 @@ def random_row_column_masking(a3m_file: Path, seed=0, frac=0.1, row_column_switc
                 records[i][1] = "".join(seq)
     
     else:
-        raise ValueError("row_column_switch should be \"column\" or \"row\".")
+        raise ValueError("row_or_col should be \"column\" or \"row\".")
 
     if out_file is None:
         out_file = get_tmp_dir() / a3m_file.name
@@ -93,7 +93,7 @@ def random_row_column_masking(a3m_file: Path, seed=0, frac=0.1, row_column_switc
         out_file = Path(out_file)
 
     out_file.write_text("\n".join(f"{h}\n{s}" for h, s in records) + "\n")
-    console.print(f"[green]Wrote {row_column_switch}-masked file {out_file.name}[/]")
+    console.print(f"[green]Wrote {row_or_col}-masked file {out_file.name}[/]")
 
     return out_file
 
@@ -151,3 +151,23 @@ def row_masking(a3m_file: Path, n_keep: int, out_file: Path | None = None) -> Pa
     console.print(f"[green]Wrote row-masked file {out_file.name}[/]")
 
     return out_file
+
+
+# CLI-exposed ablations. Keys are the function name; "params" maps each
+# function kwarg to (type, default). `None` default means the kwarg is required.
+ABLATIONS = {
+    "row_or_col_masking": {
+        "fn": random_row_column_masking,
+        "params": {
+            "seed":       (int,   0),
+            "frac":       (float, 0.1),
+            "row_or_col": (str,   "column"),
+        },
+    },
+    "row_masking": {
+        "fn": row_masking,
+        "params": {
+            "n_keep": (int, None),
+        },
+    },
+}

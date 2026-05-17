@@ -15,11 +15,21 @@ Usage:
     # Run all available proteins
     python scripts/predict.py --job baseline
 
+    # Run with explicit input file paths (instead of names under data/)
+    python scripts/predict.py --job custom --input-files /path/to/LAT1.a3m /path/to/ZnT8.fasta
+
     # Save results to a custom path (e.g. Google Drive on Colab)
     python scripts/predict.py --job baseline --input LAT1 --drive /content/drive/MyDrive/results
 
     # Override MSA depth
     python scripts/predict.py --job msa_depth_16 --input LAT1 --max-msa 16:32
+
+    # Apply one or more ablations to the input .a3m (daisy-chained, left-to-right)
+    python scripts/predict.py --job col_mask_10 --input LAT1 \\
+        --ablation row_or_col_masking:row_or_col=column,frac=0.1,seed=0
+    python scripts/predict.py --job keep50_then_col10 --input LAT1 \\
+        --ablation row_masking:n_keep=50 \\
+        --ablation row_or_col_masking:row_or_col=column,frac=0.1,seed=0
 """
 
 from __future__ import annotations
@@ -45,6 +55,8 @@ from rich.progress import (
     SpinnerColumn,
     TextColumn,
 )
+
+from ablations import ABLATIONS, get_tmp_dir
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
@@ -118,6 +130,36 @@ def resolve_proteins(proteins: list[str] | None) -> list[str]:
     return available
 
 
+def resolve_input_paths(paths: list[Path]) -> list[Path]:
+    """Validate user-provided input file paths (.a3m or .fasta) and ensure unique stems."""
+    valid = []
+    for p in paths:
+        if not p.exists():
+            console.print(f"  [yellow]warning[/] Input file not found: [dim]{p}[/]")
+            continue
+        if p.suffix not in (".a3m", ".fasta"):
+            console.print(
+                f"  [yellow]warning[/] Skipping [dim]{p}[/]: unsupported suffix (need .a3m or .fasta)"
+            )
+            continue
+        valid.append(p)
+
+    stems = [p.stem for p in valid]
+    duplicates = sorted({s for s in stems if stems.count(s) > 1})
+    if duplicates:
+        console.print(
+            f"  [red bold]FAILED[/] Multiple input files share the same name "
+            f"(would collide in the output directory): {duplicates}"
+        )
+        sys.exit(1)
+
+    if not valid:
+        console.print("  [red bold]FAILED[/] No valid input files provided.")
+        sys.exit(1)
+
+    return valid
+
+
 def resolve_result_dir(job: str, drive: str | None) -> Path:
     """Return the result directory: --drive path if given, otherwise results/<job>/."""
     result_dir = Path(drive) / job if drive else RESULTS_DIR / job
@@ -145,12 +187,20 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         required=True,
         help="Name for this prediction run. Results saved to results/<job>/.",
     )
-    p.add_argument(
+    input_group = p.add_mutually_exclusive_group()
+    input_group.add_argument(
         "--input",
         type=str,
         nargs="+",
         default=None,
         help="One or more protein names (e.g. 'LAT1 ZnT8'). If omitted, runs all available proteins.",
+    )
+    input_group.add_argument(
+        "--input-files",
+        type=Path,
+        nargs="+",
+        default=None,
+        help="Explicit paths to .a3m or .fasta input files. Output subdir uses each file's stem.",
     )
     p.add_argument(
         "--drive",
@@ -185,7 +235,58 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Seeds per model checkpoint. Total = num_models × num_seeds.",
     )
 
+    ablation_help = (
+        "Apply an ablation from scripts/ablations.py to the input .a3m before "
+        "prediction. Format: NAME:k=v,k=v. Repeatable; ablations are daisy-chained "
+        "in the order given. Available: "
+        + "; ".join(
+            f"{name}({', '.join(params['params'])})"
+            for name, params in ABLATIONS.items()
+        )
+        + ". Use a distinct --job name when changing ablations, since the "
+        "prediction-skip check only keys on (protein, model, seed)."
+    )
+    p.add_argument(
+        "--ablation",
+        action="append",
+        default=[],
+        metavar="NAME:k=v,k=v",
+        help=ablation_help,
+    )
+
     return p.parse_args(argv)
+
+
+def parse_ablation_spec(spec: str) -> tuple[str, dict]:
+    """Parse 'name:k=v,k=v' into (name, typed_kwargs)."""
+    name, _, rest = spec.partition(":")
+    if name not in ABLATIONS:
+        raise ValueError(f"Unknown ablation '{name}'. Available: {list(ABLATIONS)}")
+    schema = ABLATIONS[name]["params"]
+    kwargs = {}
+    if rest:
+        for pair in rest.split(","):
+            k, _, v = pair.partition("=")
+            k, v = k.strip(), v.strip()
+            if k not in schema:
+                raise ValueError(f"Unknown param '{k}' for ablation '{name}'. Valid: {list(schema)}")
+            type_, _ = schema[k]
+            kwargs[k] = type_(v)
+    for k, (_, default) in schema.items():
+        if default is None and k not in kwargs:
+            raise ValueError(f"Ablation '{name}' requires '{k}=...'")
+    return name, kwargs
+
+
+def apply_ablations(input_path: Path, ablations: list[tuple[str, dict]]) -> Path:
+    """Daisy-chain ablations on input_path. All steps write to a single tmp file."""
+    if not ablations:
+        return input_path
+    out_file = get_tmp_dir() / input_path.name
+    current = input_path
+    for name, kwargs in ablations:
+        current = ABLATIONS[name]["fn"](current, out_file=out_file, **kwargs)
+    return current
 
 
 def prediction_exists(result_dir: Path, protein: str, model_num: int, seed: int) -> bool:
@@ -197,6 +298,12 @@ def prediction_exists(result_dir: Path, protein: str, model_num: int, seed: int)
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
 
+    try:
+        ablations = [parse_ablation_spec(s) for s in args.ablation]
+    except ValueError as e:
+        console.print(f"  [red bold]FAILED[/] {e}")
+        sys.exit(1)
+
     from colabfold.batch import get_queries, run, set_model_type
     from colabfold.download import download_alphafold_params
     from colabfold.utils import setup_logging
@@ -204,10 +311,22 @@ def main(argv: list[str] | None = None) -> None:
     result_dir = resolve_result_dir(args.job, args.drive)
     setup_logging(result_dir / "log.txt")
 
-    proteins = resolve_proteins(args.input)
+    if args.input_files is not None:
+        input_paths = resolve_input_paths(args.input_files)
+    else:
+        input_paths = [resolve_input_file(p) for p in resolve_proteins(args.input)]
+
+    if ablations:
+        non_a3m = [p for p in input_paths if p.suffix != ".a3m"]
+        if non_a3m:
+            console.print(
+                f"  [red bold]FAILED[/] --ablation requires .a3m input, got: "
+                f"{[str(p) for p in non_a3m]}"
+            )
+            sys.exit(1)
 
     console.print(f"\n[bold]Running job: {args.job}[/]")
-    console.print(f"  proteins: {', '.join(proteins)}")
+    console.print(f"  proteins: {', '.join(p.stem for p in input_paths)}")
     console.print(f"  results:  [dim]{result_dir}[/]")
 
     cli_params = {"msa_mode": args.msa_mode, "max_msa": args.max_msa,
@@ -217,6 +336,9 @@ def main(argv: list[str] | None = None) -> None:
     if overrides:
         console.print(f"  [yellow]overrides[/]: {overrides}")
 
+    if ablations:
+        console.print(f"  [yellow]ablations[/]: {' → '.join(args.ablation)}")
+
     model_type = set_model_type(False, RUN_CONFIG["model_type"])
     download_alphafold_params(model_type)
 
@@ -225,9 +347,10 @@ def main(argv: list[str] | None = None) -> None:
     total_per_protein = len(models) * len(seeds)
 
     console.print()
-    for protein in proteins:
-        input_path = resolve_input_file(protein)
-        queries, is_complex = get_queries(input_path)
+    for input_path in input_paths:
+        protein = input_path.stem
+        ablated_path = apply_ablations(input_path, ablations)
+        queries, is_complex = get_queries(ablated_path)
 
         protein_result_dir = result_dir / protein
         protein_result_dir.mkdir(parents=True, exist_ok=True)
