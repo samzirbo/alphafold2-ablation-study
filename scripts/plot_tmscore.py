@@ -1,5 +1,6 @@
 import argparse
-import os
+import json
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -26,12 +27,18 @@ def __calc_tm_score(file1_path: str, file2_path: str) -> float:
     return tm_score
 
 
-def calc_tm_score_folders(protein: str, nseq: int, reference_folder: str, target_folder: str, output_file_name: str) -> None:
+def calc_tm_score_folders(
+        protein: str,
+        reference_folder: str,
+        target_folder: str,
+        metadata_file: str,
+        output_file_name: str
+) -> None:
     """
     :param protein: protein name
-    :param nseq: number of sequences (depth)
     :param reference_folder: path to folder containing reference files
     :param target_folder: path to folder containing target files
+    :param metadata_file: path to metadata file
     :param output_file_name: name of output csv file
 
     Calculate TM-score from folder of reference files and folder of target files,
@@ -45,8 +52,23 @@ def calc_tm_score_folders(protein: str, nseq: int, reference_folder: str, target
     reference_folder = reference_folder + "/" if reference_folder[-1] != "/" else reference_folder
     target_folder = target_folder + "/" if target_folder[-1] != "/" else target_folder
 
-    reference_files = [f for f in os.listdir(reference_folder) if f.endswith('.pdb') ]
-    target_files = [f for f in os.listdir(target_folder) if f.endswith('.pdb') ]
+    nseq = json.load(open(target_folder + "config.json"))["max_extra_seq"]
+
+    metadata = json.load(open(metadata_file))
+
+    IF_ID = metadata[protein]["conformations"]["state_1"]["pdb_id"]
+    IF_CHAIN = metadata[protein]["conformations"]["state_1"]["chain"]
+    IF_LABEL = metadata[protein]["conformations"]["state_1"]["label"]
+    OF_ID = metadata[protein]["conformations"]["state_2"]["pdb_id"]
+    OF_CHAIN = metadata[protein]["conformations"]["state_2"]["chain"]
+    OF_LABEL = metadata[protein]["conformations"]["state_2"]["label"]
+
+    reference_files = [
+        reference_folder + f"{IF_LABEL}_{IF_ID}_{IF_CHAIN}.pdb",
+        reference_folder + f"{OF_LABEL}_{OF_ID}_{OF_CHAIN}.pdb"
+    ]
+
+    target_files = [str(f) for f in Path(target_folder).glob(f"{protein}_unrelaxed_*_alphafold2_model_*_seed_*.pdb")]
 
     results_df = pd.DataFrame()
 
@@ -54,10 +76,10 @@ def calc_tm_score_folders(protein: str, nseq: int, reference_folder: str, target
         row = {"protein": protein, "nseq": nseq}
         for reference_file in reference_files:
             tm_score = __calc_tm_score(
-                reference_folder + reference_file,
-                target_folder + target_file
+                reference_file,
+                target_file
             )
-            ref_type = reference_file.split("_")[0].lower()
+            ref_type = reference_file.split("/")[-1].split("_")[0].lower()
             if "active" == ref_type:
                 row["tm_A"] = tm_score
             elif "inactive" == ref_type:
@@ -180,10 +202,10 @@ def main():
 
     calc_parser = subparsers.add_parser("calc", help="Calculate TM-scores and save CSV")
     calc_parser.add_argument("--protein", type=str, required=True)
-    calc_parser.add_argument("--nseq", type=int, required=True)
     calc_parser.add_argument("--reference_folder", type=str, required=True)
     calc_parser.add_argument("--target_folder", type=str, required=True)
     calc_parser.add_argument("--output_file", type=str, required=True)
+    calc_parser.add_argument("--metadata_path", type=str, required=True)
 
     plot_parser = subparsers.add_parser("plot", help="Plot TM-score results from CSV")
     plot_parser.add_argument("--data_file", type=str, required=True)
@@ -192,7 +214,7 @@ def main():
 
     full_parser = subparsers.add_parser("all", help="Run calc + plot")
     full_parser.add_argument("--protein", type=str, default=None)
-    full_parser.add_argument("--nseq", type=int, required=True)
+    full_parser.add_argument("--metadata_path", type=str, required=True)
     full_parser.add_argument("--reference_folder", type=str, required=True)
     full_parser.add_argument("--target_folder", type=str, required=True)
     full_parser.add_argument("--output_file", type=str, required=True)
@@ -202,10 +224,10 @@ def main():
     if args.command == "calc":
         calc_tm_score_folders(
             protein=args.protein,
-            nseq=args.nseq,
             reference_folder=args.reference_folder,
             target_folder=args.target_folder,
             output_file_name=args.output_file,
+            metadata_file=args.metadata_path,
         )
     elif args.command == "plot":
         plot_tm_score(
@@ -216,10 +238,10 @@ def main():
     elif args.command == "all":
         calc_tm_score_folders(
             protein=args.protein,
-            nseq=args.nseq,
             reference_folder=args.reference_folder,
             target_folder=args.target_folder,
             output_file_name=args.output_file,
+            metadata_file=args.metadata_path
         )
         plot_tm_score(
             data_file=args.output_file,
