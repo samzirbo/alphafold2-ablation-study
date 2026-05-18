@@ -70,6 +70,9 @@ def calc_tm_score_folders(
 
     target_files = [str(f) for f in Path(target_folder).glob(f"{protein}_unrelaxed_*_alphafold2_model_*_seed_*.pdb")]
 
+    assert len(reference_files) == 2
+    assert len(target_files) == 25
+
     results_df = pd.DataFrame()
 
     for target_file in target_files:
