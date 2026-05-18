@@ -1,5 +1,6 @@
 import argparse
 import json
+from ast import List
 from pathlib import Path
 
 import numpy as np
@@ -10,12 +11,13 @@ from tmtools import tm_align
 from tmtools.io import get_structure, get_residue_data
 
 
-def __calc_tm_score(file1_path: str, file2_path: str) -> float:
+def __calc_tm_score(file1_path: str, file2_path: str) -> list:
     """
     :param file1_path: path to .pdb file
     :param file2_path: path to .pdb file
 
     Calculate TM-score between proteins in file1 and file2.
+    Return list of TM-scores between proteins in file1 and file2 and their sequence lengths.
     """
     s1 = get_structure(file1_path)
     s2 = get_structure(file2_path)
@@ -23,8 +25,33 @@ def __calc_tm_score(file1_path: str, file2_path: str) -> float:
     coords1, seq1 = get_residue_data(next(s1.get_chains()))
     coords2, seq2 = get_residue_data(next(s2.get_chains()))
 
+    len1, len2 = len(seq1), len(seq2)
+
     tm_score = tm_align(coords1, coords2, seq1, seq2).tm_norm_chain1
-    return tm_score
+    return tm_score, len1, len2
+
+
+def get_reference_files(protein:str, reference_folder: str, metadata_file:str) -> list:
+    """
+    :param protein: protein name
+    :param reference_folder: path to folder containing reference files
+    :param metadata_file: path to metadata file
+
+    Return list of reference files
+    """
+    metadata = json.load(open(metadata_file))
+
+    IF_ID = metadata[protein]["conformations"]["state_1"]["pdb_id"]
+    IF_CHAIN = metadata[protein]["conformations"]["state_1"]["chain"]
+    IF_LABEL = metadata[protein]["conformations"]["state_1"]["label"]
+    OF_ID = metadata[protein]["conformations"]["state_2"]["pdb_id"]
+    OF_CHAIN = metadata[protein]["conformations"]["state_2"]["chain"]
+    OF_LABEL = metadata[protein]["conformations"]["state_2"]["label"]
+
+    return [
+        reference_folder + f"{IF_LABEL}_{IF_ID}_{IF_CHAIN}.pdb",
+        reference_folder + f"{OF_LABEL}_{OF_ID}_{OF_CHAIN}.pdb"
+    ]
 
 
 def calc_tm_score_folders(
@@ -54,34 +81,25 @@ def calc_tm_score_folders(
 
     nseq = json.load(open(target_folder + "config.json"))["max_extra_seq"]
 
-    metadata = json.load(open(metadata_file))
-
-    IF_ID = metadata[protein]["conformations"]["state_1"]["pdb_id"]
-    IF_CHAIN = metadata[protein]["conformations"]["state_1"]["chain"]
-    IF_LABEL = metadata[protein]["conformations"]["state_1"]["label"]
-    OF_ID = metadata[protein]["conformations"]["state_2"]["pdb_id"]
-    OF_CHAIN = metadata[protein]["conformations"]["state_2"]["chain"]
-    OF_LABEL = metadata[protein]["conformations"]["state_2"]["label"]
-
-    reference_files = [
-        reference_folder + f"{IF_LABEL}_{IF_ID}_{IF_CHAIN}.pdb",
-        reference_folder + f"{OF_LABEL}_{OF_ID}_{OF_CHAIN}.pdb"
-    ]
-
+    reference_files = get_reference_files(protein, reference_folder, metadata_file)
     target_files = [str(f) for f in Path(target_folder).glob(f"{protein}_unrelaxed_*_alphafold2_model_*_seed_*.pdb")]
 
-    assert len(reference_files) == 2
     assert len(target_files) == 25
 
     results_df = pd.DataFrame()
 
+    reference_tm, _, _ = __calc_tm_score(reference_files[0], reference_files[1])
+
     for target_file in target_files:
-        row = {"protein": protein, "nseq": nseq}
+        row = {"protein": protein, "nseq": nseq, "reference_tm": reference_tm}
         for reference_file in reference_files:
-            tm_score = __calc_tm_score(
+            tm_score, len_seq1, len_seq2 = __calc_tm_score(
                 reference_file,
                 target_file
             )
+            row["len_ref"] = len_seq1
+            row["len_tar"] = len_seq2
+
             ref_type = reference_file.split("/")[-1].split("_")[0].lower()
             if "active" == ref_type:
                 row["tm_A"] = tm_score
@@ -93,6 +111,7 @@ def calc_tm_score_folders(
                 row["tm_IF"] = tm_score
             else:
                 raise f"File {reference_file} not recognized"
+
         results_df = pd.concat([results_df, pd.DataFrame([row])], ignore_index=True)
 
     results_df.to_csv(output_file_name, index=False)
@@ -174,6 +193,10 @@ def plot_tm_score(data_file: str, save_file_name: str = None, protein: str = Non
     for spine in ax.spines.values():
         spine.set_linewidth(0.5)
         spine.set_color("black")
+
+    reference_tm = float(data.loc[0]["reference_tm"])
+    plt.axvline(x=reference_tm, c="gray", linestyle="--")
+    plt.axhline(y=reference_tm, c="gray", linestyle="--")
 
     cbar = plt.colorbar(scatter, ax=ax)
     cbar.set_label("MSA depth (sequences)", fontsize=7, fontweight="bold")
