@@ -1,6 +1,5 @@
 import argparse
 import json
-from ast import List
 from pathlib import Path
 
 import numpy as np
@@ -11,7 +10,7 @@ from tmtools import tm_align
 from tmtools.io import get_structure, get_residue_data
 
 
-def __calc_tm_score(file1_path: str, file2_path: str) -> list:
+def __calc_tm_score(file1_path: str, file2_path: str) -> tuple[float, int, int]:
     """
     :param file1_path: path to .pdb file
     :param file2_path: path to .pdb file
@@ -31,7 +30,7 @@ def __calc_tm_score(file1_path: str, file2_path: str) -> list:
     return tm_score, len1, len2
 
 
-def get_reference_files(protein:str, reference_folder: str, metadata_file:str) -> list:
+def get_reference_files(protein: str, reference_folder: str, metadata_file: str) -> list:
     """
     :param protein: protein name
     :param reference_folder: path to folder containing reference files
@@ -87,9 +86,7 @@ def calc_tm_score_folders(
     assert len(target_files) == 25
 
     results_df = pd.DataFrame()
-
     reference_tm, _, _ = __calc_tm_score(reference_files[0], reference_files[1])
-
     for target_file in target_files:
         row = {"protein": protein, "nseq": nseq, "reference_tm": reference_tm}
         for reference_file in reference_files:
@@ -113,7 +110,6 @@ def calc_tm_score_folders(
                 raise f"File {reference_file} not recognized"
 
         results_df = pd.concat([results_df, pd.DataFrame([row])], ignore_index=True)
-
     results_df.to_csv(output_file_name, index=False)
 
 
