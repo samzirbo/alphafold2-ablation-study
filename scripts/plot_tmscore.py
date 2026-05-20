@@ -2,9 +2,9 @@ import argparse
 import json
 from pathlib import Path
 
+import matplotlib.colors as mcolors
 import numpy as np
 import pandas as pd
-from matplotlib import colors
 from matplotlib import pyplot as plt
 from tmtools import tm_align
 from tmtools.io import get_structure, get_residue_data
@@ -58,7 +58,8 @@ def calc_tm_score_folders(
         reference_folder: str,
         target_folder: str,
         metadata_file: str,
-        output_file_name: str
+        output_file_name: str,
+        output_dir: str
 ) -> None:
     """
     :param protein: protein name
@@ -66,6 +67,7 @@ def calc_tm_score_folders(
     :param target_folder: path to folder containing target files
     :param metadata_file: path to metadata file
     :param output_file_name: name of output csv file
+    :param output_dir: path to output folder
 
     Calculate TM-score from folder of reference files and folder of target files,
     and return the result as csv file.
@@ -108,12 +110,18 @@ def calc_tm_score_folders(
                 row["tm_IF"] = tm_score
             else:
                 raise f"File {reference_file} not recognized"
-
         results_df = pd.concat([results_df, pd.DataFrame([row])], ignore_index=True)
+
+    if output_dir is not None:
+        if output_dir[-1] != "/":
+            output_dir += "/"
+        if output_file_name is not None:
+            output_file_name = output_dir + output_file_name
+    output_file_name = output_file_name if output_file_name is not None else f"{output_dir}{protein}.csv"
     results_df.to_csv(output_file_name, index=False)
 
 
-def get_axis_lower_limit(protein:str) -> float:
+def get_axis_lower_limit(protein: str) -> float:
     return {
         "CGRPR": 0.82,
         "FZD7": 0.85,
@@ -130,11 +138,32 @@ def get_axis_lower_limit(protein:str) -> float:
     }[protein]
 
 
-def plot_tm_score(data_file: str, save_file_name: str = None, protein: str = None) -> None:
+def depth_color(depth: int):
+    values = [16, 32, 64, 128, 256, 512, 1024, 5120]
+    cmap = plt.cm.plasma
+    positions = np.linspace(0, 1, len(values))
+    color_dict = {
+        v: mcolors.to_hex(cmap(p))
+        for v, p in zip(sorted(values), positions)
+    }
+    return color_dict[depth]
+
+
+def plot_tm_score(
+        data_file: str,
+        save_file_name: str = None,
+        protein: str = None,
+        title: str = None,
+        limit_axis: bool = True,
+        output_dir: str = None
+) -> None:
     """
     :param data_file: path to csv file
     :param save_file_name: name of output image file
     :param protein: protein name if more than 1 protein in csv
+    :param title: title of the plot
+    :param limit_axis: if the axis should be lower limited
+    :param output_dir: directory to save the plot
 
     Scatterplot of IF-OF / inactive-active TM-scores for different MSA depths.
     """
@@ -144,6 +173,8 @@ def plot_tm_score(data_file: str, save_file_name: str = None, protein: str = Non
         assert data["protein"].unique().size == 1
     else:
         data = data[data["protein"] == protein]
+
+    protein = data["protein"].unique()[0]
 
     assert ("tm_IF" in data.columns and "tm_OF" in data.columns) or ("tm_A" in data.columns and "tm_I" in data.columns)
     structure_type = "conformational" if "tm_IF" in data.columns else "functional"
@@ -157,25 +188,13 @@ def plot_tm_score(data_file: str, save_file_name: str = None, protein: str = Non
 
     data = data.sort_values("nseq")
 
-    base_cmap = plt.get_cmap("cividis")
-
-    new_colors = base_cmap(np.linspace(0.3, 1.0, 256))
-    cmap = colors.LinearSegmentedColormap.from_list("truncated_cividis", new_colors)
-
-    norm = colors.LogNorm(
-        vmin=data["nseq"].min(),
-        vmax=data["nseq"].max()
-    )
-
     fig, ax = plt.subplots(figsize=(5, 5), dpi=300)
     ax.grid(True, color="lightgray", linewidth=0.5, alpha=0.4)
 
     scatter = ax.scatter(
         data[x_col_name],
         data[y_col_name],
-        c=data["nseq"],
-        cmap=cmap,
-        norm=norm,
+        c=[depth_color(d) for d in data["nseq"]],
         s=25,
         edgecolors="black",
         linewidths=0.375
@@ -211,28 +230,62 @@ def plot_tm_score(data_file: str, save_file_name: str = None, protein: str = Non
     plt.axvline(x=reference_tm, c="gray", linestyle="--")
     plt.axhline(y=reference_tm, c="gray", linestyle="--")
 
-    cbar = plt.colorbar(scatter, ax=ax)
-    cbar.set_label("MSA depth (sequences)", fontsize=7, fontweight="bold")
-    cbar.ax.tick_params(labelsize=6)
+    unique_depths = np.sort(data["nseq"].unique())
 
-    ticks = np.sort(data["nseq"].unique())
-    cbar.set_ticks(ticks)
-    cbar.set_ticklabels([str(int(t)) for t in ticks])
+    if len(unique_depths) > 1:
+        depth_text = ", ".join([str(x) for x in unique_depths])
 
-    cbar.ax.minorticks_off()
-    cbar.ax.tick_params(which="minor", length=0)
+        used_colors = [depth_color(d) for d in unique_depths]
+        cmap = mcolors.ListedColormap(used_colors)
 
-    ax.set_xlim(get_axis_lower_limit(protein), 1)
-    ax.set_ylim(get_axis_lower_limit(protein), 1)
-    ax.set_aspect("auto", adjustable="box")
+        bounds = np.arange(len(unique_depths) + 1)
+        norm = mcolors.BoundaryNorm(bounds, cmap.N)
 
-    if save_file_name is not None:
-        plt.savefig(
-            save_file_name,
-            dpi=300,
-            bbox_inches="tight"
+        sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+        sm.set_array([])
+
+        cbar = plt.colorbar(sm, ax=ax)
+
+        cbar.set_label(
+            "MSA depth (sequences)",
+            fontsize=7,
+            fontweight="bold"
         )
 
+        cbar.ax.tick_params(labelsize=6)
+
+        cbar.set_ticks(np.arange(len(unique_depths)) + 0.5)
+        cbar.ax.tick_params(which="major", length=0)
+        cbar.set_ticklabels([str(int(d)) for d in unique_depths])
+
+        cbar.ax.minorticks_off()
+        cbar.ax.tick_params(which="minor", length=0)
+    else:
+        depth_text = f"{unique_depths[0]}"
+
+    if limit_axis:
+        ax.set_xlim(get_axis_lower_limit(protein), 1)
+        ax.set_ylim(get_axis_lower_limit(protein), 1)
+    ax.set_aspect("auto", adjustable="box")
+
+    if title is not None:
+        plt.title(title, fontsize=10)
+    else:
+        plt.title(f"{protein} | Depth: {depth_text}", fontsize=10)
+
+    print(output_dir)
+    if output_dir is not None:
+        if output_dir[-1] != "/":
+            output_dir += "/"
+        if save_file_name is not None:
+            save_file_name = output_dir + save_file_name
+    save_file_name = save_file_name if save_file_name is not None else f"{output_dir}{protein}.png"
+
+    plt.savefig(
+        save_file_name,
+        dpi=300,
+        bbox_inches="tight"
+    )
     plt.show()
     plt.close()
 
@@ -245,21 +298,28 @@ def main():
     calc_parser.add_argument("--protein", type=str, required=True)
     calc_parser.add_argument("--reference_folder", type=str, required=True)
     calc_parser.add_argument("--target_folder", type=str, required=True)
-    calc_parser.add_argument("--output_file", type=str, required=True)
+    calc_parser.add_argument("--output_file", type=str, default=None)
     calc_parser.add_argument("--metadata_path", type=str, required=True)
+    calc_parser.add_argument("--output_dir", type=str, default=None)
 
     plot_parser = subparsers.add_parser("plot", help="Plot TM-score results from CSV")
     plot_parser.add_argument("--data_file", type=str, required=True)
     plot_parser.add_argument("--save_file", type=str, default=None)
     plot_parser.add_argument("--protein", type=str, default=None)
+    plot_parser.add_argument("--title", type=str, default=None)
+    plot_parser.add_argument("--limit_axis", type=bool, default=True)
+    plot_parser.add_argument("--output_dir", type=str, default=None)
 
     full_parser = subparsers.add_parser("all", help="Run calc + plot")
     full_parser.add_argument("--protein", type=str, default=None)
     full_parser.add_argument("--metadata_path", type=str, required=True)
     full_parser.add_argument("--reference_folder", type=str, required=True)
     full_parser.add_argument("--target_folder", type=str, required=True)
-    full_parser.add_argument("--output_file", type=str, required=True)
+    full_parser.add_argument("--output_file", type=str, default=None)
     full_parser.add_argument("--save_file", type=str, default=None)
+    full_parser.add_argument("--title", type=str, default=None)
+    full_parser.add_argument("--limit_axis", type=bool, default=True)
+    full_parser.add_argument("--output_dir", type=str, default=None)
 
     args = parser.parse_args()
     if args.command == "calc":
@@ -269,12 +329,16 @@ def main():
             target_folder=args.target_folder,
             output_file_name=args.output_file,
             metadata_file=args.metadata_path,
+            output_dir=args.output_dir
         )
     elif args.command == "plot":
         plot_tm_score(
             data_file=args.data_file,
             save_file_name=args.save_file,
             protein=args.protein,
+            title=args.title,
+            limit_axis=args.limit_axis,
+            output_dir=args.output_dir
         )
     elif args.command == "all":
         calc_tm_score_folders(
@@ -282,12 +346,16 @@ def main():
             reference_folder=args.reference_folder,
             target_folder=args.target_folder,
             output_file_name=args.output_file,
-            metadata_file=args.metadata_path
+            metadata_file=args.metadata_path,
+            output_dir=args.output_dir
         )
         plot_tm_score(
             data_file=args.output_file,
             save_file_name=args.save_file,
             protein=args.protein,
+            title=args.title,
+            limit_axis=args.limit_axis,
+            output_dir=args.output_dir
         )
 
 
