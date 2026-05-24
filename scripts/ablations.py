@@ -151,3 +151,70 @@ def row_masking(a3m_file: Path, n_keep: int, out_file: Path | None = None) -> Pa
     console.print(f"[green]Wrote row-masked file {out_file.name}[/]")
 
     return out_file
+
+
+def random_query_masking(a3m_file: Path, frac: float, seed: int = 7, out_file: Path | None = None) -> Path:
+    """
+    Creates an a3m file where a fraction of amino acids in the query sequence are masked and returns the path to it.
+
+    Only the query (first) sequence is modified; all MSA hit sequences remain untouched.
+    Masking replaces selected amino acids with the token ``"X"``.
+
+    **Maskable positions** are all characters in the query that are valid amino-acid
+    tokens (uppercase ``A-Z``), *excluding* gap characters (``"-"``) and any
+    pre-existing mask tokens (``"X"``).  The ``frac`` parameter specifies what
+    fraction of these maskable positions will be replaced with ``"X"``.
+
+    Which specific positions are masked is chosen uniformly at random, controlled
+    by the ``seed`` parameter for reproducibility.
+
+    Args:
+        a3m_file (Path):        File to be masked.
+        frac (float):           Required. Fraction of maskable tokens (amino acids
+                                excluding ``"-"`` and ``"X"``) in the query sequence
+                                to replace with ``"X"``. Must be between 0.0 and 1.0.
+        seed (int):             Seed for the random number generator. Default is 7.
+        out_file (Path | None): Path where the masked file should be written to.
+                                Written to a temporary file if None.
+
+    Returns:
+        Path: Path to the masked file.
+    """
+    if not 0.0 <= frac <= 1.0:
+        raise ValueError("frac should be between 0.0 and 1.0")
+
+    rng = np.random.default_rng(seed)
+
+    lines = a3m_file.read_text().splitlines()
+    records = []
+    for i in range(0, len(lines), 2):
+        if lines[i].startswith(">"):
+            records.append([lines[i], lines[i + 1].strip()])
+        else:
+            console.print(f'[red bold] Expected a header line starting with ">" at position {i}. Instead line was {lines[i]}[/]')
+            raise RuntimeError("Failed to create query-masked a3m file")
+
+    # Identify maskable positions: amino-acid tokens that are NOT "-" or "X"
+    query_seq = list(records[0][1])
+    maskable_indices = [
+        k for k, char in enumerate(query_seq)
+        if char in ACID_TOKENS and char not in ("-", "X")
+    ]
+
+    n_mask = int(len(maskable_indices) * frac)
+    if n_mask > 0:
+        chosen = rng.choice(maskable_indices, n_mask, replace=False)
+        for k in chosen:
+            query_seq[k] = "X"
+
+    records[0][1] = "".join(query_seq)
+
+    if out_file is None:
+        out_file = get_tmp_dir() / a3m_file.name
+    else:
+        out_file = Path(out_file)
+
+    out_file.write_text("\n".join(f"{h}\n{s}" for h, s in records) + "\n")
+    console.print(f"[green]Wrote query-masked file {out_file.name} ({n_mask}/{len(maskable_indices)} positions masked)[/]")
+
+    return out_file
