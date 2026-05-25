@@ -37,6 +37,8 @@ import tempfile
 from itertools import product
 from pathlib import Path
 
+import time # for the FUSE fix (folder duplicates)
+
 from rich.console import Console
 from rich.progress import (
     BarColumn,
@@ -249,7 +251,16 @@ def main(argv: list[str] | None = None) -> None:
         queries, is_complex = get_queries(input_path)
 
         protein_result_dir = result_dir / protein
-        protein_result_dir.mkdir(parents=True, exist_ok=True)
+        # Workaround for Google Drive FUSE latency: avoid parents=True to prevent
+        # creating duplicate parent directories if FUSE cache is lagging.
+        for _ in range(5):
+            try:
+                protein_result_dir.mkdir(exist_ok=True)
+                break
+            except FileNotFoundError:
+                time.sleep(2)
+        else:
+            protein_result_dir.mkdir(parents=True, exist_ok=True)
 
         skipped = 0
 
