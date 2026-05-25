@@ -185,6 +185,19 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Seeds per model checkpoint. Total = num_models × num_seeds.",
     )
 
+    p.add_argument(
+        "--qm-frac",
+        type=float,
+        default=None,
+        help="Fraction of the query sequence to mask with 'X' (0.0 to 1.0).",
+    )
+    p.add_argument(
+        "--qm-seed",
+        type=int,
+        default=7,
+        help="Random seed for query masking.",
+    )
+
     return p.parse_args(argv)
 
 
@@ -227,6 +240,12 @@ def main(argv: list[str] | None = None) -> None:
     console.print()
     for protein in proteins:
         input_path = resolve_input_file(protein)
+
+        if args.qm_frac is not None:
+            from scripts.ablations import random_query_masking
+            console.print(f"  [blue]info[/] Applying query masking to {protein} (frac={args.qm_frac}, seed={args.qm_seed})")
+            input_path = random_query_masking(input_path, frac=args.qm_frac, seed=args.qm_seed)
+
         queries, is_complex = get_queries(input_path)
 
         protein_result_dir = result_dir / protein
@@ -297,29 +316,6 @@ def main(argv: list[str] | None = None) -> None:
                                 shutil.copy2(config, protein_result_dir / config.name)
 
                         console.print(f"  [green]finished[/]        {protein} model_{model_num} seed_{seed:03d}")
-                    except Exception as e:
-                        console.print(
-                            f"  [red bold]FAILED[/] model_{model_num} seed_{seed:03d}: {e}"
-                        )
-
-                progress.advance(task)
-
-        if skipped:
-            console.print(
-                f"  [green]runs completed[/]        {protein}  "
-                f"[dim]({skipped}/{total_per_protein} skipped)[/]"
-            )
-        else:
-            console.print(f"  [green]runs completed[/]        {protein}")
-
-    console.print(
-        f"\n[bold green]Job '{args.job}' complete.[/] Results in [dim]{result_dir}[/]\n"
-    )
-
-
-if __name__ == "__main__":
-    main()
-l_num} seed_{seed:03d}")
                     except Exception as e:
                         console.print(
                             f"  [red bold]FAILED[/] model_{model_num} seed_{seed:03d}: {e}"
