@@ -319,3 +319,26 @@ def main(argv: list[str] | None = None) -> None:
 
 if __name__ == "__main__":
     main()
+l_num} seed_{seed:03d}")
+                    except Exception as e:
+                        console.print(
+                            f"  [red bold]FAILED[/] model_{model_num} seed_{seed:03d}: {e}"
+                        )
+
+                progress.advance(task)
+
+        if skipped:
+            console.print(
+                f"  [green]runs completed[/]        {protein}  "
+                f"[dim]({skipped}/{total_per_protein} skipped)[/]"
+            )
+        else:
+            console.print(f"  [green]runs completed[/]        {protein}")
+
+    console.print(
+        f"\n[bold green]Job '{args.job}' complete.[/] Results in [dim]{result_dir}[/]\n"
+    )
+
+
+if __name__ == "__main__":
+    main()
