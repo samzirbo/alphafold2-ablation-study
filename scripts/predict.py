@@ -205,6 +205,17 @@ def resolve_result_dir(job: str, drive: str | None) -> Path:
         )
     else:
         result_dir.mkdir(parents=True)
+        # Workaround for Google Drive FUSE (avoid duplicate folders): Wait until the directory is visible to the cache
+        for _ in range(15):
+            if result_dir.exists():
+                break
+            # Force FUSE cache refresh
+            if result_dir.parent.exists():
+                try:
+                    os.listdir(result_dir.parent)
+                except Exception:
+                    pass
+            time.sleep(1)
 
     return result_dir
 
@@ -389,14 +400,25 @@ def main(argv: list[str] | None = None) -> None:
         protein_result_dir = result_dir / protein
         # Workaround for Google Drive FUSE latency: avoid parents=True to prevent
         # creating duplicate parent directories if FUSE cache is lagging.
-        for _ in range(5):
+        for _ in range(15):
             try:
+                # Force FUSE cache refresh on the parent directory
+                if result_dir.exists():
+                    try:
+                        os.listdir(result_dir)
+                    except Exception:
+                        pass
                 protein_result_dir.mkdir(exist_ok=True)
                 break
             except FileNotFoundError:
                 time.sleep(2)
         else:
-            protein_result_dir.mkdir(parents=True, exist_ok=True)
+            console.print(f"  [yellow]warning[/] FUSE cache timeout. Attempting direct creation for {protein_result_dir}")
+            try:
+                protein_result_dir.mkdir(exist_ok=True)
+            except FileNotFoundError:
+                # We specifically avoid parents=True here to prevent duplicating the parent folder.
+                pass
 
         skipped = 0
 
