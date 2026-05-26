@@ -24,12 +24,44 @@ Usage:
     # Override MSA depth
     python scripts/predict.py --job msa_depth_16 --input LAT1 --max-msa 16:32
 
-    # Apply one or more ablations to the input .a3m (daisy-chained, left-to-right)
+        # Apply one or more ablations to the input .a3m (daisy-chained, left-to-right)
     python scripts/predict.py --job col_mask_10 --input LAT1 \\
         --ablation row_or_col_masking:row_or_col=column,frac=0.1,seed=0
     python scripts/predict.py --job keep50_then_col10 --input LAT1 \\
         --ablation row_masking:n_keep=50 \\
         --ablation row_or_col_masking:row_or_col=column,frac=0.1,seed=0
+
+    # Apply an ablation to the input .a3m before prediction.
+    # Format: --ablation NAME:arg1=value1,arg2=value2
+    #
+    # Available ablations (defined in scripts/ablations.py):
+    #   row_or_col_masking  – mask random MSA rows or columns
+    #       params: row_or_col (str, default "column"), frac (float, default 0.1), seed (int, default 0)
+    #   row_masking         – mask all MSA rows beyond the first n_keep hits
+    #       params: n_keep (int, required)
+    #   query_masking       – mask a fraction of amino acids in the query sequence
+    #       params: frac (float, required), seed (int, default 7)
+    #
+    # Parameters with defaults can be omitted. For example, these two are equivalent:
+    #   --ablation query_masking:frac=0.3,seed=7
+    #   --ablation query_masking:frac=0.3
+    #
+    # Multiple --ablation flags are daisy-chained left-to-right: the output of
+    # the first ablation becomes the input to the next.
+    #
+    # IMPORTANT: Use a distinct --job name when changing ablations, since the
+    # prediction-skip check only keys on (protein, model, seed).
+
+    # Simple: mask 30% of the query sequence
+    python scripts/predict.py --job qm_30 --input LAT1 \\
+        --ablation query_masking:frac=0.3
+
+    # Complex: keep only top-50 MSA hits, then mask 10% of MSA columns,
+    # then mask 20% of the query sequence (all daisy-chained)
+    python scripts/predict.py --job keep50_col10_qm20 --input LAT1 \\
+        --ablation row_masking:n_keep=50 \\
+        --ablation row_or_col_masking:row_or_col=column,frac=0.1,seed=0 \\
+        --ablation query_masking:frac=0.2
 """
 
 from __future__ import annotations
@@ -256,19 +288,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help=ablation_help,
     )
 
-    p.add_argument(
-        "--qm-frac",
-        type=float,
-        default=None,
-        help="Fraction of the query sequence to mask with 'X' (0.0 to 1.0).",
-    )
-    p.add_argument(
-        "--qm-seed",
-        type=int,
-        default=7,
-        help="Random seed for query masking.",
-    )
-
     return p.parse_args(argv)
 
 
@@ -366,17 +385,6 @@ def main(argv: list[str] | None = None) -> None:
         protein = input_path.stem
         ablated_path = apply_ablations(input_path, ablations)
         queries, is_complex = get_queries(ablated_path)
-    
-    # alternative from working intitial query ablation implementation
-    # for protein in proteins:
-    #     input_path = resolve_input_file(protein)
-
-    #     if args.qm_frac is not None:
-    #         from scripts.ablations import random_query_masking
-    #         console.print(f"  [blue]info[/] Applying query masking to {protein} (frac={args.qm_frac}, seed={args.qm_seed})")
-    #         input_path = random_query_masking(input_path, frac=args.qm_frac, seed=args.qm_seed)
-
-    #     queries, is_complex = get_queries(input_path)
 
         protein_result_dir = result_dir / protein
         # Workaround for Google Drive FUSE latency: avoid parents=True to prevent
