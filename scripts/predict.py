@@ -197,26 +197,19 @@ def resolve_input_paths(paths: list[Path]) -> list[Path]:
 def resolve_result_dir(job: str, drive: str | None) -> Path:
     """Return the result directory: --drive path if given, otherwise results/<job>/.
 
-    When a Google Drive path is given, the *existing* base path is resolved
-    (symlinks / Drive shortcuts followed) **before** the job subdirectory is
-    created.  This guarantees that every subsequent ``mkdir`` and file-copy
-    operates on one single canonical path, preventing the FUSE driver from
-    creating duplicate parent folders.
+    Resolves symlinks/shortcuts on the parent directory BEFORE creating the
+    job directory. This prevents Google Drive FUSE from splitting its cache
+    between the shortcut path and the canonical path, which was causing
+    duplicate folder creations.
     """
     if drive:
-        drive_path = Path(drive)
-        # Resolve Google Drive shortcuts (symlinks to shared drives) on the
-        # *existing* base path BEFORE appending the job name.  This way the
-        # job directory is created directly on the canonical path — not via
-        # the shortcut — so FUSE never sees two different paths.
-        if drive_path.exists():
-            resolved_drive = drive_path.resolve()
-            if resolved_drive != drive_path:
-                console.print(f"  [dim]resolved Drive shortcut → {resolved_drive}[/]")
-            drive_path = resolved_drive
-        result_dir = drive_path / job
+        parent_dir = Path(drive).resolve()
+        result_dir = parent_dir / job
+        if parent_dir != Path(drive):
+            console.print(f"  [dim]resolved Drive shortcut → {parent_dir}[/]")
     else:
-        result_dir = RESULTS_DIR / job
+        parent_dir = RESULTS_DIR.resolve()
+        result_dir = parent_dir / job
 
     if result_dir.exists():
         console.print(
@@ -224,15 +217,14 @@ def resolve_result_dir(job: str, drive: str | None) -> Path:
             f"          Existing model/seed predictions will be skipped."
         )
     else:
-        result_dir.mkdir(parents=True)
-        # Workaround for Google Drive FUSE: wait until the directory is visible to the cache
+        result_dir.mkdir(parents=True, exist_ok=True)
+        # Workaround for Google Drive FUSE (avoid duplicate folders)
         for _ in range(15):
             if result_dir.exists():
                 break
-            # Force FUSE cache refresh
-            if result_dir.parent.exists():
+            if parent_dir.exists():
                 try:
-                    os.listdir(result_dir.parent)
+                    os.listdir(parent_dir)
                 except Exception:
                     pass
             time.sleep(1)
@@ -507,31 +499,20 @@ def main(argv: list[str] | None = None) -> None:
             # result_dir is already resolved (symlinks followed), so
             # protein_result_dir is also on the canonical path.
             drive_copy_ok = False
-            for attempt in range(20):
+            for attempt in range(30):
                 try:
                     # Force FUSE cache refresh on the parent directory
                     try:
                         os.listdir(result_dir)
                     except Exception:
                         pass
+                    # We strictly avoid parents=True here to prevent any possibility
+                    # of recreating the parent result_dir and causing duplicates.
                     protein_result_dir.mkdir(exist_ok=True)
                     drive_copy_ok = True
                     break
                 except FileNotFoundError:
                     time.sleep(2)
-
-            # Fallback: re-resolve the parent in case FUSE remounted,
-            # but never use parents=True (it creates duplicate folders).
-            if not drive_copy_ok:
-                try:
-                    resolved_parent = result_dir.resolve()
-                    resolved_protein_dir = resolved_parent / protein
-                    resolved_protein_dir.mkdir(exist_ok=True)
-                    protein_result_dir = resolved_protein_dir
-                    drive_copy_ok = True
-                    console.print(f"  [dim]created dir via re-resolved path: {protein_result_dir}[/]")
-                except Exception:
-                    pass
 
             if drive_copy_ok:
                 for f in staged_files:
