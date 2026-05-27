@@ -398,34 +398,14 @@ def main(argv: list[str] | None = None) -> None:
         queries, is_complex = get_queries(ablated_path)
 
         protein_result_dir = result_dir / protein
-        # Workaround for Google Drive FUSE latency: avoid parents=True to prevent
-        # creating duplicate parent directories if FUSE cache is lagging.
-        for _ in range(15):
-            try:
-                # Force FUSE cache refresh on the parent directory
-                if result_dir.exists():
-                    try:
-                        os.listdir(result_dir)
-                    except Exception:
-                        pass
-                protein_result_dir.mkdir(exist_ok=True)
-                break
-            except FileNotFoundError:
-                time.sleep(2)
-        else:
-            console.print(f"  [yellow]warning[/] FUSE cache timeout. Attempting direct creation for {protein_result_dir}")
-            # Last resort: use parents=True. The parent was already intentionally
-            # created by resolve_result_dir(), so this won't create a spurious
-            # duplicate — it only helps when FUSE hasn't propagated the parent yet.
-            protein_result_dir.mkdir(parents=True, exist_ok=True)
 
-        # Hard check: abort this protein if the directory still doesn't exist.
-        if not protein_result_dir.exists():
-            console.print(
-                f"  [red bold]FAILED[/] Could not create output directory: {protein_result_dir}\n"
-                f"          Skipping protein {protein}."
-            )
-            continue
+        # --- Local staging approach ---
+        # Instead of creating the protein subdirectory on Google Drive now
+        # (which fails or creates duplicate parents due to FUSE cache lag),
+        # we accumulate all results in a local temp directory first. After
+        # all predictions finish, we copy everything to Drive in one shot.
+        # By that time FUSE has had minutes to propagate the parent directory.
+        local_staging = Path(tempfile.mkdtemp(prefix=f"af2_{protein}_"))
 
         skipped = 0
 
@@ -448,8 +428,7 @@ def main(argv: list[str] | None = None) -> None:
                     progress.advance(task)
                     continue
 
-                # Write to a local staging dir to avoid Google Drive FUSE
-                # rename race conditions, then copy outputs to the final dir.
+                # Write to a per-run temp dir, then stage outputs locally.
                 with tempfile.TemporaryDirectory() as tmpdir:
                     tmp_path = Path(tmpdir)
                     try:
@@ -477,25 +456,20 @@ def main(argv: list[str] | None = None) -> None:
                             skip_output=["plots"] if i == 0 else ["plots", "msa"],
                         )
 
-                        # Verify destination exists before copying
-                        if not protein_result_dir.exists():
-                            raise FileNotFoundError(
-                                f"Output directory disappeared: {protein_result_dir}"
-                            )
-
+                        # Stage results locally (never touches Google Drive)
                         for f in tmp_path.glob("*.pdb"):
-                            shutil.copy2(f, protein_result_dir / f.name)
+                            shutil.copy2(f, local_staging / f.name)
                         for f in tmp_path.glob("*scores*.json"):
-                            shutil.copy2(f, protein_result_dir / f.name)
+                            shutil.copy2(f, local_staging / f.name)
 
                         # Save one msa and config file per protein
                         if i == 0:
                             a3m = tmp_path / f"{protein}.a3m"
                             if a3m.exists():
-                                shutil.copy2(a3m, protein_result_dir / a3m.name)
+                                shutil.copy2(a3m, local_staging / a3m.name)
                             config = tmp_path / "config.json"
                             if config.exists():
-                                shutil.copy2(config, protein_result_dir / config.name)
+                                shutil.copy2(config, local_staging / config.name)
 
                         console.print(f"  [green]finished[/]        {protein} model_{model_num} seed_{seed:03d}")
                     except Exception as e:
@@ -504,6 +478,41 @@ def main(argv: list[str] | None = None) -> None:
                         )
 
                 progress.advance(task)
+
+        # --- Copy staged results to Google Drive ---
+        staged_files = list(local_staging.iterdir())
+        if staged_files:
+            # Create the protein directory on Drive. By now FUSE has had
+            # several minutes to propagate the parent (result_dir).
+            # We avoid parents=True to prevent creating duplicate parents.
+            drive_copy_ok = False
+            for attempt in range(20):
+                try:
+                    # Force FUSE cache refresh on the parent directory
+                    try:
+                        os.listdir(result_dir)
+                    except Exception:
+                        pass
+                    protein_result_dir.mkdir(exist_ok=True)
+                    drive_copy_ok = True
+                    break
+                except FileNotFoundError:
+                    time.sleep(2)
+
+            if drive_copy_ok:
+                for f in staged_files:
+                    shutil.copy2(f, protein_result_dir / f.name)
+                console.print(f"  [green]copied {len(staged_files)} files to Drive[/]")
+            else:
+                console.print(
+                    f"  [red bold]FAILED[/] Could not create Drive directory: {protein_result_dir}\n"
+                    f"          Results preserved locally at: {local_staging}"
+                )
+                # Don't delete local staging if Drive copy failed
+                continue
+
+        # Clean up local staging
+        shutil.rmtree(local_staging, ignore_errors=True)
 
         if skipped:
             console.print(
