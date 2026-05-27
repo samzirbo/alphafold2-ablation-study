@@ -195,7 +195,15 @@ def resolve_input_paths(paths: list[Path]) -> list[Path]:
 
 
 def resolve_result_dir(job: str, drive: str | None) -> Path:
-    """Return the result directory: --drive path if given, otherwise results/<job>/."""
+    """Return the result directory: --drive path if given, otherwise results/<job>/.
+
+    The returned path is resolved (symlinks followed) so that subsequent
+    operations (mkdir for protein sub-dirs, file copies) work on the
+    canonical filesystem path.  This is critical when the Drive path
+    passes through a Google Drive shortcut (symlink to a shared drive):
+    FUSE can open/write files through the shortcut, but mkdir for child
+    directories silently fails with ENOENT.
+    """
     result_dir = Path(drive) / job if drive else RESULTS_DIR / job
 
     if result_dir.exists():
@@ -217,7 +225,12 @@ def resolve_result_dir(job: str, drive: str | None) -> Path:
                     pass
             time.sleep(1)
 
-    return result_dir
+    # Resolve symlinks (Google Drive shortcuts to shared drives) so that
+    # all subsequent child-directory creation uses the real path.
+    resolved = result_dir.resolve()
+    if resolved != result_dir:
+        console.print(f"  [dim]resolved Drive shortcut → {resolved}[/]")
+    return resolved
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -484,7 +497,8 @@ def main(argv: list[str] | None = None) -> None:
         if staged_files:
             # Create the protein directory on Drive. By now FUSE has had
             # several minutes to propagate the parent (result_dir).
-            # We avoid parents=True to prevent creating duplicate parents.
+            # result_dir is already resolved (symlinks followed), so
+            # protein_result_dir is also on the canonical path.
             drive_copy_ok = False
             for attempt in range(20):
                 try:
@@ -498,6 +512,18 @@ def main(argv: list[str] | None = None) -> None:
                     break
                 except FileNotFoundError:
                     time.sleep(2)
+
+            # Fallback: re-resolve the parent in case FUSE remounted
+            if not drive_copy_ok:
+                try:
+                    resolved_parent = result_dir.resolve()
+                    resolved_protein_dir = resolved_parent / protein
+                    resolved_protein_dir.mkdir(parents=True, exist_ok=True)
+                    protein_result_dir = resolved_protein_dir
+                    drive_copy_ok = True
+                    console.print(f"  [dim]created dir via re-resolved path: {protein_result_dir}[/]")
+                except Exception:
+                    pass
 
             if drive_copy_ok:
                 for f in staged_files:
