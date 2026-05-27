@@ -414,11 +414,18 @@ def main(argv: list[str] | None = None) -> None:
                 time.sleep(2)
         else:
             console.print(f"  [yellow]warning[/] FUSE cache timeout. Attempting direct creation for {protein_result_dir}")
-            try:
-                protein_result_dir.mkdir(exist_ok=True)
-            except FileNotFoundError:
-                # We specifically avoid parents=True here to prevent duplicating the parent folder.
-                pass
+            # Last resort: use parents=True. The parent was already intentionally
+            # created by resolve_result_dir(), so this won't create a spurious
+            # duplicate — it only helps when FUSE hasn't propagated the parent yet.
+            protein_result_dir.mkdir(parents=True, exist_ok=True)
+
+        # Hard check: abort this protein if the directory still doesn't exist.
+        if not protein_result_dir.exists():
+            console.print(
+                f"  [red bold]FAILED[/] Could not create output directory: {protein_result_dir}\n"
+                f"          Skipping protein {protein}."
+            )
+            continue
 
         skipped = 0
 
@@ -469,6 +476,12 @@ def main(argv: list[str] | None = None) -> None:
                             max_msa=args.max_msa,
                             skip_output=["plots"] if i == 0 else ["plots", "msa"],
                         )
+
+                        # Verify destination exists before copying
+                        if not protein_result_dir.exists():
+                            raise FileNotFoundError(
+                                f"Output directory disappeared: {protein_result_dir}"
+                            )
 
                         for f in tmp_path.glob("*.pdb"):
                             shutil.copy2(f, protein_result_dir / f.name)
