@@ -197,14 +197,26 @@ def resolve_input_paths(paths: list[Path]) -> list[Path]:
 def resolve_result_dir(job: str, drive: str | None) -> Path:
     """Return the result directory: --drive path if given, otherwise results/<job>/.
 
-    The returned path is resolved (symlinks followed) so that subsequent
-    operations (mkdir for protein sub-dirs, file copies) work on the
-    canonical filesystem path.  This is critical when the Drive path
-    passes through a Google Drive shortcut (symlink to a shared drive):
-    FUSE can open/write files through the shortcut, but mkdir for child
-    directories silently fails with ENOENT.
+    When a Google Drive path is given, the *existing* base path is resolved
+    (symlinks / Drive shortcuts followed) **before** the job subdirectory is
+    created.  This guarantees that every subsequent ``mkdir`` and file-copy
+    operates on one single canonical path, preventing the FUSE driver from
+    creating duplicate parent folders.
     """
-    result_dir = Path(drive) / job if drive else RESULTS_DIR / job
+    if drive:
+        drive_path = Path(drive)
+        # Resolve Google Drive shortcuts (symlinks to shared drives) on the
+        # *existing* base path BEFORE appending the job name.  This way the
+        # job directory is created directly on the canonical path — not via
+        # the shortcut — so FUSE never sees two different paths.
+        if drive_path.exists():
+            resolved_drive = drive_path.resolve()
+            if resolved_drive != drive_path:
+                console.print(f"  [dim]resolved Drive shortcut → {resolved_drive}[/]")
+            drive_path = resolved_drive
+        result_dir = drive_path / job
+    else:
+        result_dir = RESULTS_DIR / job
 
     if result_dir.exists():
         console.print(
@@ -213,7 +225,7 @@ def resolve_result_dir(job: str, drive: str | None) -> Path:
         )
     else:
         result_dir.mkdir(parents=True)
-        # Workaround for Google Drive FUSE (avoid duplicate folders): Wait until the directory is visible to the cache
+        # Workaround for Google Drive FUSE: wait until the directory is visible to the cache
         for _ in range(15):
             if result_dir.exists():
                 break
@@ -225,12 +237,7 @@ def resolve_result_dir(job: str, drive: str | None) -> Path:
                     pass
             time.sleep(1)
 
-    # Resolve symlinks (Google Drive shortcuts to shared drives) so that
-    # all subsequent child-directory creation uses the real path.
-    resolved = result_dir.resolve()
-    if resolved != result_dir:
-        console.print(f"  [dim]resolved Drive shortcut → {resolved}[/]")
-    return resolved
+    return result_dir
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -513,12 +520,13 @@ def main(argv: list[str] | None = None) -> None:
                 except FileNotFoundError:
                     time.sleep(2)
 
-            # Fallback: re-resolve the parent in case FUSE remounted
+            # Fallback: re-resolve the parent in case FUSE remounted,
+            # but never use parents=True (it creates duplicate folders).
             if not drive_copy_ok:
                 try:
                     resolved_parent = result_dir.resolve()
                     resolved_protein_dir = resolved_parent / protein
-                    resolved_protein_dir.mkdir(parents=True, exist_ok=True)
+                    resolved_protein_dir.mkdir(exist_ok=True)
                     protein_result_dir = resolved_protein_dir
                     drive_copy_ok = True
                     console.print(f"  [dim]created dir via re-resolved path: {protein_result_dir}[/]")
