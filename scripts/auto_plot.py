@@ -22,6 +22,7 @@ proteins = [
     "FZD7"
 ]
 
+
 def autoplot(result_path, base_repo_path, recalculate_all=False):
     print(result_path, base_repo_path)
     all_subdirectories = glob.glob(os.path.join(result_path, '*'))
@@ -37,7 +38,7 @@ def autoplot(result_path, base_repo_path, recalculate_all=False):
     os.makedirs(plots_dir, exist_ok=True)
 
     for start_path in filtered_subdirectories:
-        
+
         found = []
         for root, dirs, files in os.walk(start_path):
             for protein_name in proteins:
@@ -48,7 +49,7 @@ def autoplot(result_path, base_repo_path, recalculate_all=False):
                             found.append(full_path)
                             experiment_name = full_path.split("/")[-2]
                             experiment_result_dir = plots_dir + "/" + experiment_name
-                            if not os.path.exists(experiment_result_dir) or recalculate_all:
+                            if len(glob.glob(experiment_result_dir + "/*")) == 0:
                                 os.makedirs(experiment_result_dir, exist_ok=True)
                                 calc_tm_score_folders(
                                     protein_name,
@@ -61,10 +62,12 @@ def autoplot(result_path, base_repo_path, recalculate_all=False):
                                 plot_tm_score(
                                     experiment_result_dir + "/" + protein_name + ".csv",
                                     protein=protein_name,
-                                    save_file_name = protein_name + ".png",
+                                    save_file_name=protein_name + ".png",
                                     limit_axis=False,
                                     output_dir=experiment_result_dir
                                 )
+                            else:
+                                print("Skipped: ", experiment_result_dir)
 
 
 if __name__ == "__main__":
