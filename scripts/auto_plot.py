@@ -66,6 +66,7 @@ def autoplot(result_path, base_repo_path, recalculate_all=False):
                                     output_dir=experiment_result_dir
                                 )
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
