@@ -286,7 +286,7 @@ def plot_tm_score(
         dpi=300,
         bbox_inches="tight"
     )
-    plt.show()
+    print("Saving fugure at: ", save_file_name)
     plt.close()
 
 
