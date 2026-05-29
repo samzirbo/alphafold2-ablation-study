@@ -96,8 +96,6 @@ def calc_tm_score_folders(
                 reference_file,
                 target_file
             )
-            row["len_ref"] = len_seq1
-            row["len_tar"] = len_seq2
 
             ref_type = reference_file.split("/")[-1].split("_")[0].lower()
             if "active" == ref_type:
@@ -109,7 +107,7 @@ def calc_tm_score_folders(
             elif "if" == ref_type:
                 row["tm_IF"] = tm_score
             else:
-                raise f"File {reference_file} not recognized"
+                raise ValueError(f"File {reference_file} not recognized")
         results_df = pd.concat([results_df, pd.DataFrame([row])], ignore_index=True)
 
     if output_dir is not None:
@@ -119,6 +117,7 @@ def calc_tm_score_folders(
             output_file_name = output_dir + output_file_name
     output_file_name = output_file_name if output_file_name is not None else f"{output_dir}{protein}.csv"
     results_df.to_csv(output_file_name, index=False)
+    return output_file_name
 
 
 def get_axis_lower_limit(protein: str) -> float:
@@ -286,7 +285,7 @@ def plot_tm_score(
         dpi=300,
         bbox_inches="tight"
     )
-    print("Saving fugure at: ", save_file_name)
+    print("Saving figure at: ", save_file_name)
     plt.close()
 
 
@@ -307,7 +306,7 @@ def main():
     plot_parser.add_argument("--save_file", type=str, default=None)
     plot_parser.add_argument("--protein", type=str, default=None)
     plot_parser.add_argument("--title", type=str, default=None)
-    plot_parser.add_argument("--limit_axis", type=bool, default=True)
+    plot_parser.add_argument("--limit_axis", action=argparse.BooleanOptionalAction, default=True)
     plot_parser.add_argument("--output_dir", type=str, default=None)
 
     full_parser = subparsers.add_parser("all", help="Run calc + plot")
@@ -318,7 +317,7 @@ def main():
     full_parser.add_argument("--output_file", type=str, default=None)
     full_parser.add_argument("--save_file", type=str, default=None)
     full_parser.add_argument("--title", type=str, default=None)
-    full_parser.add_argument("--limit_axis", type=bool, default=True)
+    full_parser.add_argument("--limit_axis", action=argparse.BooleanOptionalAction, default=True)
     full_parser.add_argument("--output_dir", type=str, default=None)
 
     args = parser.parse_args()
@@ -341,7 +340,7 @@ def main():
             output_dir=args.output_dir
         )
     elif args.command == "all":
-        calc_tm_score_folders(
+        data_file = calc_tm_score_folders(
             protein=args.protein,
             reference_folder=args.reference_folder,
             target_folder=args.target_folder,
@@ -350,7 +349,7 @@ def main():
             output_dir=args.output_dir
         )
         plot_tm_score(
-            data_file=args.output_file,
+            data_file=data_file,
             save_file_name=args.save_file,
             protein=args.protein,
             title=args.title,

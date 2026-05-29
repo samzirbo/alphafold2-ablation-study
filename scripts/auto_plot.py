@@ -49,7 +49,11 @@ def autoplot(result_path, base_repo_path):
                             found.append(full_path)
                             experiment_name = full_path.split("/")[-2]
                             experiment_result_dir = plots_dir + "/" + experiment_name
-                            if len(glob.glob(experiment_result_dir + "/*")) == 0:
+                            csv_path = experiment_result_dir + "/" + protein_name + ".csv"
+                            png_path = experiment_result_dir + "/" + protein_name + ".png"
+                            if os.path.exists(csv_path) and os.path.exists(png_path):
+                                print("Skipped: " + experiment_result_dir + "/" + protein_name)
+                            else:
                                 os.makedirs(experiment_result_dir, exist_ok=True)
                                 calc_tm_score_folders(
                                     protein_name,
@@ -66,8 +70,6 @@ def autoplot(result_path, base_repo_path):
                                     limit_axis=False,
                                     output_dir=experiment_result_dir
                                 )
-                            else:
-                                print("Skipped: ", experiment_result_dir)
 
 
 if __name__ == "__main__":
