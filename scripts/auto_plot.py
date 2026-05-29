@@ -22,7 +22,7 @@ proteins = [
     "FZD7"
 ]
 
-def autoplot(result_path, base_repo_path):
+def autoplot(result_path, base_repo_path, recalculate_all=False):
     print(result_path, base_repo_path)
     all_subdirectories = glob.glob(os.path.join(result_path, '*'))
 
@@ -48,29 +48,31 @@ def autoplot(result_path, base_repo_path):
                             found.append(full_path)
                             experiment_name = full_path.split("/")[-2]
                             experiment_result_dir = plots_dir + "/" + experiment_name
-                            os.makedirs(experiment_result_dir, exist_ok=True)
-                            calc_tm_score_folders(
-                                protein_name,
-                                base_repo_path + "/data/" + protein_name + "/references/",
-                                full_path,
-                                base_repo_path + "/data/metadata.json",
-                                protein_name + ".csv",
-                                experiment_result_dir
-                            )
-                            plot_tm_score(
-                                experiment_result_dir + "/" + protein_name + ".csv",
-                                protein=protein_name,
-                                save_file_name = protein_name + ".png",
-                                limit_axis=False,
-                                output_dir=experiment_result_dir
-                            )
+                            if not os.path.exists(experiment_result_dir) or recalculate_all:
+                                os.makedirs(experiment_result_dir, exist_ok=True)
+                                calc_tm_score_folders(
+                                    protein_name,
+                                    base_repo_path + "/data/" + protein_name + "/references/",
+                                    full_path,
+                                    base_repo_path + "/data/metadata.json",
+                                    protein_name + ".csv",
+                                    experiment_result_dir
+                                )
+                                plot_tm_score(
+                                    experiment_result_dir + "/" + protein_name + ".csv",
+                                    protein=protein_name,
+                                    save_file_name = protein_name + ".png",
+                                    limit_axis=False,
+                                    output_dir=experiment_result_dir
+                                )
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
     parser.add_argument("--result_path", required=True)
     parser.add_argument("--base_repo_path", required=True)
+    parser.add_argument("--recalculate_all", default=False)
 
     args = parser.parse_args()
 
-    autoplot(args.result_path, args.base_repo_path)
+    autoplot(args.result_path, args.base_repo_path, args.recalculate_all)
