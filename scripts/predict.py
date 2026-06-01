@@ -353,6 +353,54 @@ def prediction_exists(result_dir: Path, protein: str, model_num: int, seed: int)
     return any(result_dir.glob(f"{protein}_unrelaxed_*_{tag}.pdb"))
 
 
+def _safe_copy(src: Path, dst: Path) -> None:
+    """Copy *src* to *dst* via a temporary file to avoid partial writes.
+
+    Writes to ``<dst>.tmp`` first, then renames.  This ensures that
+    ``prediction_exists()`` never sees a half-written PDB file, so a
+    crashed run can be safely resumed.
+    """
+    tmp_dst = dst.with_suffix(dst.suffix + ".tmp")
+    shutil.copy2(src, tmp_dst)
+    tmp_dst.rename(dst)
+
+
+def _ensure_drive_dir(target_dir: Path, parent_dir: Path) -> None:
+    """Create *target_dir* with FUSE-aware retries.
+
+    Google Drive FUSE can lag in propagating newly created parent directories,
+    causing ``mkdir`` to fail with ``ENOENT``.  This function retries with
+    cache-refresh tricks and falls back to re-resolving the parent path.
+    """
+    if target_dir.exists():
+        return
+
+    for _attempt in range(20):
+        try:
+            # Force FUSE cache refresh on the parent directory
+            try:
+                os.listdir(parent_dir)
+            except Exception:
+                pass
+            target_dir.mkdir(exist_ok=True)
+            return
+        except FileNotFoundError:
+            time.sleep(2)
+
+    # Fallback: re-resolve the parent in case FUSE remounted
+    try:
+        resolved_parent = parent_dir.resolve()
+        resolved_dir = resolved_parent / target_dir.name
+        resolved_dir.mkdir(parents=True, exist_ok=True)
+        console.print(f"  [dim]created dir via re-resolved path: {resolved_dir}[/]")
+        return
+    except Exception:
+        pass
+
+    console.print(f"  [red bold]FAILED[/] Could not create directory: {target_dir}")
+    sys.exit(1)
+
+
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
 
@@ -407,18 +455,20 @@ def main(argv: list[str] | None = None) -> None:
     console.print()
     for input_path in input_paths:
         protein = input_path.stem
+        # RNG independence: each ablation function creates a fresh
+        # np.random.default_rng(seed) from the fixed CLI seed, so the
+        # result is identical regardless of protein ordering or whether
+        # this is a fresh run vs. a resume after partial completion.
         ablated_path = apply_ablations(input_path, ablations)
         queries, is_complex = get_queries(ablated_path)
 
         protein_result_dir = result_dir / protein
+        _ensure_drive_dir(protein_result_dir, result_dir)
 
-        # --- Local staging approach ---
-        # Instead of creating the protein subdirectory on Google Drive now
-        # (which fails or creates duplicate parents due to FUSE cache lag),
-        # we accumulate all results in a local temp directory first. After
-        # all predictions finish, we copy everything to Drive in one shot.
-        # By that time FUSE has had minutes to propagate the parent directory.
-        local_staging = Path(tempfile.mkdtemp(prefix=f"af2_{protein}_"))
+        # Track whether the MSA/config have already been saved (from a
+        # previous run or from an earlier iteration in this run) so that
+        # resumed runs don't re-generate MSA output unnecessarily.
+        msa_saved = (protein_result_dir / f"{protein}.a3m").exists()
 
         skipped = 0
 
@@ -434,14 +484,13 @@ def main(argv: list[str] | None = None) -> None:
         with progress:
             task = progress.add_task(protein, total=total_per_protein)
 
-            for i, (model_num, seed) in enumerate(product(models, seeds)):
+            for model_num, seed in product(models, seeds):
                 if prediction_exists(protein_result_dir, protein, model_num, seed):
                     skipped += 1
                     console.print(f"  [blue]skipped[/]    {protein} model_{model_num} seed_{seed:03d}")
                     progress.advance(task)
                     continue
 
-                # Write to a per-run temp dir, then stage outputs locally.
                 with tempfile.TemporaryDirectory() as tmpdir:
                     tmp_path = Path(tmpdir)
                     try:
@@ -454,6 +503,8 @@ def main(argv: list[str] | None = None) -> None:
                             num_models=1,
                             model_order=[model_num],
                             num_seeds=1,
+                            # RNG independence: random_seed is set explicitly
+                            # per (model, seed) pair — no global RNG state.
                             random_seed=seed,
                             # --- fixed ---
                             use_dropout=RUN_CONFIG["use_dropout"],
@@ -466,23 +517,26 @@ def main(argv: list[str] | None = None) -> None:
                             # --- overridable ---
                             msa_mode=args.msa_mode,
                             max_msa=args.max_msa,
-                            skip_output=["plots"] if i == 0 else ["plots", "msa"],
+                            skip_output=["plots"] if not msa_saved else ["plots", "msa"],
                         )
 
-                        # Stage results locally (never touches Google Drive)
+                        # Save results to Drive immediately via atomic copy
+                        # (write to .tmp then rename, so prediction_exists()
+                        # never sees a half-written file on resume).
                         for f in tmp_path.glob("*.pdb"):
-                            shutil.copy2(f, local_staging / f.name)
+                            _safe_copy(f, protein_result_dir / f.name)
                         for f in tmp_path.glob("*scores*.json"):
-                            shutil.copy2(f, local_staging / f.name)
+                            _safe_copy(f, protein_result_dir / f.name)
 
-                        # Save one msa and config file per protein
-                        if i == 0:
+                        # Save MSA and config once per protein
+                        if not msa_saved:
                             a3m = tmp_path / f"{protein}.a3m"
                             if a3m.exists():
-                                shutil.copy2(a3m, local_staging / a3m.name)
+                                _safe_copy(a3m, protein_result_dir / a3m.name)
                             config = tmp_path / "config.json"
                             if config.exists():
-                                shutil.copy2(config, local_staging / config.name)
+                                _safe_copy(config, protein_result_dir / config.name)
+                            msa_saved = True
 
                         console.print(f"  [green]finished[/]        {protein} model_{model_num} seed_{seed:03d}")
                     except Exception as e:
@@ -491,54 +545,6 @@ def main(argv: list[str] | None = None) -> None:
                         )
 
                 progress.advance(task)
-
-        # --- Copy staged results to Google Drive ---
-        staged_files = list(local_staging.iterdir())
-        if staged_files:
-            # Create the protein directory on Drive. By now FUSE has had
-            # several minutes to propagate the parent (result_dir).
-            # result_dir is already resolved (symlinks followed), so
-            # protein_result_dir is also on the canonical path.
-            drive_copy_ok = False
-            for attempt in range(20):
-                try:
-                    # Force FUSE cache refresh on the parent directory
-                    try:
-                        os.listdir(result_dir)
-                    except Exception:
-                        pass
-                    protein_result_dir.mkdir(exist_ok=True)
-                    drive_copy_ok = True
-                    break
-                except FileNotFoundError:
-                    time.sleep(2)
-
-            # Fallback: re-resolve the parent in case FUSE remounted
-            if not drive_copy_ok:
-                try:
-                    resolved_parent = result_dir.resolve()
-                    resolved_protein_dir = resolved_parent / protein
-                    resolved_protein_dir.mkdir(parents=True, exist_ok=True)
-                    protein_result_dir = resolved_protein_dir
-                    drive_copy_ok = True
-                    console.print(f"  [dim]created dir via re-resolved path: {protein_result_dir}[/]")
-                except Exception:
-                    pass
-
-            if drive_copy_ok:
-                for f in staged_files:
-                    shutil.copy2(f, protein_result_dir / f.name)
-                console.print(f"  [green]copied {len(staged_files)} files to Drive[/]")
-            else:
-                console.print(
-                    f"  [red bold]FAILED[/] Could not create Drive directory: {protein_result_dir}\n"
-                    f"          Results preserved locally at: {local_staging}"
-                )
-                # Don't delete local staging if Drive copy failed
-                continue
-
-        # Clean up local staging
-        shutil.rmtree(local_staging, ignore_errors=True)
 
         if skipped:
             console.print(
