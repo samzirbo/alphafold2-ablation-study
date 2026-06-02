@@ -1,5 +1,6 @@
 import argparse
 import json
+import warnings
 from pathlib import Path
 
 import matplotlib.colors as mcolors
@@ -60,7 +61,7 @@ def calc_tm_score_folders(
         metadata_file: str,
         output_file_name: str,
         output_dir: str
-) -> None:
+) -> str:
     """
     :param protein: protein name
     :param reference_folder: path to folder containing reference files
@@ -85,7 +86,8 @@ def calc_tm_score_folders(
     reference_files = get_reference_files(protein, reference_folder, metadata_file)
     target_files = [str(f) for f in Path(target_folder).glob(f"{protein}_unrelaxed_*_alphafold2_model_*_seed_*.pdb")]
 
-    assert len(target_files) == 25
+    if len(target_files) != 25:
+        warnings.warn(f"There are {len(target_files)} in {target_folder}, instead of the expected 25!")
 
     results_df = pd.DataFrame()
     reference_tm, _, _ = __calc_tm_score(reference_files[0], reference_files[1])
@@ -322,7 +324,7 @@ def main():
 
     args = parser.parse_args()
     if args.command == "calc":
-        calc_tm_score_folders(
+        _ = calc_tm_score_folders(
             protein=args.protein,
             reference_folder=args.reference_folder,
             target_folder=args.target_folder,
