@@ -6,13 +6,14 @@ for each protein defined in data/metadata.json.
 """
 
 import argparse
+import io
 import json
 import shutil
 import time
 from pathlib import Path
+
+import Bio.PDB
 from colabfold.colabfold import run_mmseqs2
-
-
 import requests
 from rich.console import Console
 
@@ -127,35 +128,49 @@ def fetch_pdb(pdb_id: str) -> str | None:
     return r.text if r else None
 
 
-def extract_chain(pdb_text: str, chain: str) -> str:
-    """Keep only ATOM/HETATM/TER records for the given chain, plus END."""
-    lines = []
-    atom_count = 0
-    available_chains = set()
+def kept_positions(info: dict) -> set[int]:
+    """Return the set of 1-indexed UniProt positions kept after truncation."""
+    seq_len = info["sequence_length"]
+    positions = set(range(1, seq_len + 1))
+    for start, end in info["truncation"]:
+        positions -= set(range(start, end + 1))
+    return positions
 
-    for line in pdb_text.splitlines():
-        record = line[:6].strip()
 
-        if record in ("ATOM", "HETATM", "TER"):
-            if len(line) > 21:
-                current_chain = line[21]
-                available_chains.add(current_chain)
+class ChainSelect(Bio.PDB.Select):
+    """PDBIO selector: keeps one chain, optionally filtering by residue number."""
 
-                if current_chain == chain:
-                    lines.append(line)
-                    if record in ("ATOM", "HETATM"):
-                        atom_count += 1
+    def __init__(self, chain_id: str, keep_residues: set[int] | None = None):
+        self.chain_id = chain_id
+        self.keep_residues = keep_residues
 
-        elif record == "END":
-            continue
+    def accept_chain(self, chain):
+        return chain.id == self.chain_id
 
-    if atom_count == 0:
+    def accept_residue(self, residue):
+        if self.keep_residues is None:
+            return True
+        resnum = residue.id[1]
+        return resnum in self.keep_residues
+
+
+def extract_chain(pdb_text: str, chain: str, keep_residues: set[int] | None = None) -> str:
+    """Extract a single chain from PDB text, optionally trimming by residue numbers."""
+    parser = Bio.PDB.PDBParser(QUIET=True)
+    structure = parser.get_structure("ref", io.StringIO(pdb_text))
+
+    available_chains = [c.id for c in structure.get_chains()]
+    if chain not in available_chains:
         raise ValueError(
             f"chain {chain} not found; available chains: {sorted(available_chains)}"
         )
 
-    lines.append("END")
-    return "\n".join(lines) + "\n"
+    out = io.StringIO()
+    pdb_io = Bio.PDB.PDBIO()
+    pdb_io.set_structure(structure)
+    pdb_io.save(out, select=ChainSelect(chain, keep_residues))
+
+    return out.getvalue()
 
 
 def download_structures(metadata: dict) -> None:
@@ -163,6 +178,8 @@ def download_structures(metadata: dict) -> None:
     for name, info in metadata.items():
         references_dir = DATA_DIR / name / "references"
         references_dir.mkdir(parents=True, exist_ok=True)
+
+        keep = kept_positions(info)
 
         for conf in info["conformations"].values():
             label = conf["label"]
@@ -181,7 +198,7 @@ def download_structures(metadata: dict) -> None:
                 raise RuntimeError(f"Failed to download PDB {pdb_id} for {name}/{label}")
 
             try:
-                chain_data = extract_chain(pdb_data, chain)
+                chain_data = extract_chain(pdb_data, chain, keep_residues=keep)
             except ValueError as exc:
                 console.print(f"  [red bold]FAILED[/]    {name}/{label}: {exc}")
                 raise
@@ -189,7 +206,7 @@ def download_structures(metadata: dict) -> None:
             raw_path.write_text(pdb_data)
             chain_path.write_text(chain_data)
 
-            console.print(f"  [green]ok[/]        {name}/{label} — {pdb_id} chain {chain}")
+            console.print(f"  [green]ok[/]        {name}/{label} — {pdb_id} chain {chain} (trimmed to {len(keep)} positions)")
 
     console.print("  [green]done[/]")
 
