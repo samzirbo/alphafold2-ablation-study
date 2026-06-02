@@ -23,7 +23,7 @@ proteins = [
 ]
 
 
-def autoplot(result_path, base_repo_path, limit_axis=False):
+def autoplot(result_path, base_repo_path, limit_axis=True):
     print(result_path, base_repo_path)
     all_subdirectories = glob.glob(os.path.join(result_path, '*'))
 
@@ -75,7 +75,7 @@ if __name__ == "__main__":
 
     parser.add_argument("--result_path", required=True)
     parser.add_argument("--base_repo_path", required=True)
-    parser.add_argument("--limit_axis", default=False)
+    parser.add_argument("--limit_axis", default=True)
 
     args = parser.parse_args()
 
