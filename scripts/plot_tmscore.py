@@ -61,7 +61,7 @@ def calc_tm_score_folders(
         metadata_file: str,
         output_file_name: str,
         output_dir: str
-) -> None:
+) -> str:
     """
     :param protein: protein name
     :param reference_folder: path to folder containing reference files
@@ -324,7 +324,7 @@ def main():
 
     args = parser.parse_args()
     if args.command == "calc":
-        calc_tm_score_folders(
+        _ = calc_tm_score_folders(
             protein=args.protein,
             reference_folder=args.reference_folder,
             target_folder=args.target_folder,

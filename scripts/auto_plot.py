@@ -81,4 +81,4 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    autoplot(args.result_path, args.base_repo_path)
+    autoplot(args.result_path, args.base_repo_path, args.limit_axis)
