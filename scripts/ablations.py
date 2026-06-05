@@ -153,17 +153,19 @@ def row_masking(a3m_file: Path, n_keep: int, out_file: Path | None = None) -> Pa
     return out_file
 
 
-def random_query_masking(a3m_file: Path, frac: float, seed: int = 7, out_file: Path | None = None) -> Path:
+def random_query_masking(a3m_file: Path, frac: float, seed: int = 7, mask_with_X: bool = False, out_file: Path | None = None) -> Path:
     """
     Creates an a3m file where a fraction of amino acids in the query sequence are masked and returns the path to it.
 
     Only the query (first) sequence is modified; all MSA hit sequences remain untouched.
-    Masking replaces selected amino acids with the token ``"X"``.
+    By default, masking replaces selected amino acids with ``"A"`` (alanine
+    scanning).  Set ``mask_with_X=True`` to use the unknown-residue token
+    ``"X"`` instead.
 
     **Maskable positions** are all characters in the query that are valid amino-acid
     tokens (uppercase ``A-Z``), *excluding* gap characters (``"-"``) and any
     pre-existing mask tokens (``"X"``).  The ``frac`` parameter specifies what
-    fraction of these maskable positions will be replaced with ``"X"``.
+    fraction of these maskable positions will be replaced.
 
     Which specific positions are masked is chosen uniformly at random, controlled
     by the ``seed`` parameter for reproducibility.
@@ -172,8 +174,10 @@ def random_query_masking(a3m_file: Path, frac: float, seed: int = 7, out_file: P
         a3m_file (Path):        File to be masked.
         frac (float):           Required. Fraction of maskable tokens (amino acids
                                 excluding ``"-"`` and ``"X"``) in the query sequence
-                                to replace with ``"X"``. Must be between 0.0 and 1.0.
+                                to replace. Must be between 0.0 and 1.0.
         seed (int):             Seed for the random number generator. Default is 7.
+        mask_with_X (bool):     If True, replace with ``"X"`` (unknown residue).
+                                If False (default), replace with ``"A"`` (alanine).
         out_file (Path | None): Path where the masked file should be written to.
                                 Written to a temporary file if None.
 
@@ -183,6 +187,7 @@ def random_query_masking(a3m_file: Path, frac: float, seed: int = 7, out_file: P
     if not 0.0 <= frac <= 1.0:
         raise ValueError("frac should be between 0.0 and 1.0")
 
+    mask_token = "X" if mask_with_X else "A"
     rng = np.random.default_rng(seed)
 
     lines = a3m_file.read_text().splitlines()
@@ -205,7 +210,7 @@ def random_query_masking(a3m_file: Path, frac: float, seed: int = 7, out_file: P
     if n_mask > 0:
         chosen = rng.choice(maskable_indices, n_mask, replace=False)
         for k in chosen:
-            query_seq[k] = "X"
+            query_seq[k] = mask_token
 
     records[0][1] = "".join(query_seq)
 
@@ -215,7 +220,8 @@ def random_query_masking(a3m_file: Path, frac: float, seed: int = 7, out_file: P
         out_file = Path(out_file)
 
     out_file.write_text("\n".join(f"{h}\n{s}" for h, s in records) + "\n")
-    console.print(f"[green]Wrote query-masked file {out_file.name} ({n_mask}/{len(maskable_indices)} positions masked)[/]")
+    token_label = "X-masked" if mask_with_X else "Ala-substituted"
+    console.print(f"[green]Wrote query-masked file {out_file.name} ({n_mask}/{len(maskable_indices)} positions {token_label})[/]")
 
     return out_file
 
@@ -240,8 +246,9 @@ ABLATIONS = {
     "query_masking": {
         "fn": random_query_masking,
         "params": {
-            "frac": (float, None),
-            "seed": (int,   7),
+            "frac":       (float, None),
+            "seed":       (int,   7),
+            "mask_with_X": (lambda v: v.lower() in ("true", "1", "yes"), False),
         },
     },
 }

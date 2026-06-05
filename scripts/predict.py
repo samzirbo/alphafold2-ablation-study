@@ -39,8 +39,9 @@ Usage:
     #       params: row_or_col (str, default "column"), frac (float, default 0.1), seed (int, default 0)
     #   row_masking         – mask all MSA rows beyond the first n_keep hits
     #       params: n_keep (int, required)
-    #   query_masking       – mask a fraction of amino acids in the query sequence
-    #       params: frac (float, required), seed (int, default 7)
+    #   query_masking       – replace a fraction of amino acids in the query sequence
+    #       params: frac (float, required), seed (int, default 7),
+    #               mask_with_X (bool, default False – uses "A"/alanine; set True for "X")
     #
     # Parameters with defaults can be omitted. For example, these two are equivalent:
     #   --ablation query_masking:frac=0.3,seed=7
