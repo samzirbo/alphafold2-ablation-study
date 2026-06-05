@@ -73,6 +73,7 @@ os.environ["GRPC_VERBOSITY"] = "ERROR"
 
 import argparse
 import json
+import logging
 import shutil
 import sys
 import tempfile
@@ -417,6 +418,30 @@ def main(argv: list[str] | None = None) -> None:
     result_dir = resolve_result_dir(args.job, args.drive)
     setup_logging(result_dir / "log.txt")
 
+    # ── Write job-level header to log.txt ──
+    logger = logging.getLogger(__name__)
+    logger.info("=" * 60)
+    logger.info("JOB: %s", args.job)
+    # Log the raw CLI input args (before input_paths is resolved below)
+    if args.input_files is not None:
+        logger.info("  input-files: %s", " ".join(str(p) for p in args.input_files))
+    elif args.input is not None:
+        logger.info("  input:      %s", " ".join(args.input))
+    else:
+        logger.info("  input:      (all available proteins)")
+    logger.info("  max-msa:    %s", args.max_msa)
+    logger.info("  msa-mode:   %s", args.msa_mode)
+    logger.info("  num-models: %d", args.num_models)
+    logger.info("  num-seeds:  %d", args.num_seeds)
+    if args.drive:
+        logger.info("  drive:      %s", args.drive)
+    if args.ablation:
+        for spec in args.ablation:
+            logger.info("  ablation:   %s", spec)
+    else:
+        logger.info("  ablations:  (none)")
+    logger.info("=" * 60)
+
     if args.input_files is not None:
         input_paths = resolve_input_paths(args.input_files)
     else:
@@ -455,6 +480,9 @@ def main(argv: list[str] | None = None) -> None:
     console.print()
     for input_path in input_paths:
         protein = input_path.stem
+        logger.info("-" * 60)
+        logger.info("PROTEIN: %s", protein)
+        logger.info("-" * 60)
         # RNG independence: each ablation function creates a fresh
         # np.random.default_rng(seed) from the fixed CLI seed, so the
         # result is identical regardless of protein ordering or whether
