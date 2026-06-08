@@ -7,6 +7,7 @@ import matplotlib.colors as mcolors
 import numpy as np
 import pandas as pd
 from matplotlib import pyplot as plt
+from matplotlib.ticker import FormatStrFormatter
 from tmtools import tm_align
 from tmtools.io import get_structure, get_residue_data
 
@@ -216,7 +217,7 @@ def plot_tm_score(
         fontweight="bold"
     )
 
-    ax.tick_params(axis="both", labelsize=6)
+    ax.tick_params(axis="both", labelsize=9)
     ax.set_aspect("equal", adjustable="box")
     ax.set_facecolor("white")
 
