@@ -157,7 +157,8 @@ def plot_tm_score(
         protein: str = None,
         title: str = None,
         limit_axis: bool = True,
-        output_dir: str = None
+        output_dir: str = None,
+        experiment_name: str = None
 ) -> None:
     """
     :param data_file: path to csv file
@@ -166,6 +167,7 @@ def plot_tm_score(
     :param title: title of the plot
     :param limit_axis: if the axis should be lower limited
     :param output_dir: directory to save the plot
+    :param experiment_name: name of the experiment
 
     Scatterplot of IF-OF / inactive-active TM-scores for different MSA depths.
     """
@@ -270,12 +272,13 @@ def plot_tm_score(
         ax.set_ylim(get_axis_lower_limit(protein), 1)
     ax.set_aspect("auto", adjustable="box")
 
+    if experiment_name is not None:
+        title = "Experiment: " + experiment_name + "\n" + title
     if title is not None:
         plt.title(title, fontsize=10)
     else:
         plt.title(f"{protein} | Depth: {depth_text}", fontsize=10)
 
-    print(output_dir)
     if output_dir is not None:
         if output_dir[-1] != "/":
             output_dir += "/"
@@ -288,7 +291,6 @@ def plot_tm_score(
         dpi=300,
         bbox_inches="tight"
     )
-    print("Saving figure at: ", save_file_name)
     plt.close()
 
 

@@ -32,8 +32,6 @@ def autoplot_tmscore(result_path, base_repo_path, limit_axis=True, experiment_fo
 
     all_subdirectories = glob.glob(os.path.join(result_path, '*'))
 
-    print(all_subdirectories)
-
     filtered_subdirectories = []
     for subdir in all_subdirectories:
         if experiment_folder_name is None:
@@ -81,7 +79,8 @@ def autoplot_tmscore(result_path, base_repo_path, limit_axis=True, experiment_fo
                                     protein=protein_name,
                                     save_file_name=protein_name + ".png",
                                     limit_axis=limit_axis,
-                                    output_dir=experiment_result_dir
+                                    output_dir=experiment_result_dir,
+                                    experiment_name=experiment_name
                                 )
 
 
