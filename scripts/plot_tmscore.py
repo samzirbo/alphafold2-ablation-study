@@ -7,6 +7,7 @@ import matplotlib.colors as mcolors
 import numpy as np
 import pandas as pd
 from matplotlib import pyplot as plt
+from matplotlib.ticker import FormatStrFormatter
 from tmtools import tm_align
 from tmtools.io import get_structure, get_residue_data
 
@@ -156,7 +157,8 @@ def plot_tm_score(
         protein: str = None,
         title: str = None,
         limit_axis: bool = True,
-        output_dir: str = None
+        output_dir: str = None,
+        experiment_name: str = None
 ) -> None:
     """
     :param data_file: path to csv file
@@ -165,6 +167,7 @@ def plot_tm_score(
     :param title: title of the plot
     :param limit_axis: if the axis should be lower limited
     :param output_dir: directory to save the plot
+    :param experiment_name: name of the experiment
 
     Scatterplot of IF-OF / inactive-active TM-scores for different MSA depths.
     """
@@ -216,7 +219,7 @@ def plot_tm_score(
         fontweight="bold"
     )
 
-    ax.tick_params(axis="both", labelsize=6)
+    ax.tick_params(axis="both", labelsize=9)
     ax.set_aspect("equal", adjustable="box")
     ax.set_facecolor("white")
 
@@ -272,9 +275,11 @@ def plot_tm_score(
     if title is not None:
         plt.title(title, fontsize=10)
     else:
-        plt.title(f"{protein} | Depth: {depth_text}", fontsize=10)
+        title = f"{protein} | Depth: {depth_text}"
+        if experiment_name is not None:
+            title = "Experiment: " + experiment_name + "\n" + title
+        plt.title(title, fontsize=10)
 
-    print(output_dir)
     if output_dir is not None:
         if output_dir[-1] != "/":
             output_dir += "/"
@@ -287,7 +292,6 @@ def plot_tm_score(
         dpi=300,
         bbox_inches="tight"
     )
-    print("Saving figure at: ", save_file_name)
     plt.close()
 
 
