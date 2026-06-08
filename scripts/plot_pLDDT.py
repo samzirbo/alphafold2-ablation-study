@@ -1,8 +1,12 @@
+import os
+
 import nbformat as nbf
 from pathlib import Path
 
 def generate_notebook(path_to_plot_folder):
-    pdb_files = list(Path(path_to_plot_folder).glob("*.pdb"))
+    pdb_files = list(Path(path_to_plot_folder).rglob("*.pdb"))
+    print(path_to_plot_folder)
+    print(pdb_files)
 
     nb = nbf.v4.new_notebook()
     cells = []
@@ -43,3 +47,4 @@ png = view.png()
 
     with open("plddt_batch_render.ipynb", "w") as f:
         nbf.write(nb, f)
+        print("Saved to:", os.getcwd() + "/plddt_batch_render.ipynb")

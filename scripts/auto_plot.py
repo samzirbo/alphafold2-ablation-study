@@ -85,8 +85,9 @@ def autoplot_tmscore(result_path, base_repo_path, limit_axis=True, experiment_fo
                                 )
 
 
-def autoplot_plddt(base_repo_path):
-    print("Reading from ", base_repo_path)
+def autoplot_plddt(result_path):
+    print("Reading from ", result_path)
+    generate_notebook(result_path)
 
 
 
@@ -104,7 +105,7 @@ if __name__ == "__main__":
 
     assert args.type in [None, "tmscore", "plddt"]
 
-    if args.type is not "plddt":
+    if args.type != "plddt":
         autoplot_tmscore(
             args.result_path,
             args.base_repo_path,
@@ -113,5 +114,5 @@ if __name__ == "__main__":
             args.replot_all
         )
 
-    if args.type is not "tmscore":
-        autoplot_plddt(args.base_repo_path)
+    if args.type != "tmscore":
+        autoplot_plddt(args.result_path)
