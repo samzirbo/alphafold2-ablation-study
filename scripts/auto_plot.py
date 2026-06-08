@@ -4,6 +4,7 @@ import sys
 import argparse
 
 from plot_tmscore import calc_tm_score_folders, plot_tm_score
+from plot_pLDDT import generate_notebook
 
 directories_to_exclude = ["archive", "plots"]
 
@@ -84,6 +85,11 @@ def autoplot_tmscore(result_path, base_repo_path, limit_axis=True, experiment_fo
                                 )
 
 
+def autoplot_plddt(base_repo_path):
+    print("Reading from ", base_repo_path)
+
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
@@ -92,13 +98,20 @@ if __name__ == "__main__":
     parser.add_argument("--experiment_folder_name", required=False)
     parser.add_argument("--limit_axis", default=True)
     parser.add_argument("--replot_all", default=False)
+    parser.add_argument("--type", default=None)
 
     args = parser.parse_args()
 
-    autoplot_tmscore(
-        args.result_path,
-        args.base_repo_path,
-        args.limit_axis,
-        args.experiment_folder_name,
-        args.replot_all
-    )
+    assert args.type in [None, "tmscore", "plddt"]
+
+    if args.type is not "plddt":
+        autoplot_tmscore(
+            args.result_path,
+            args.base_repo_path,
+            args.limit_axis,
+            args.experiment_folder_name,
+            args.replot_all
+        )
+
+    if args.type is not "tmscore":
+        autoplot_plddt(args.base_repo_path)
