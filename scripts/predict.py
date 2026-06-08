@@ -83,8 +83,8 @@ RUN_CONFIG = {
 def resolve_input_file(protein: str) -> Path | None:
     """Return the input file for a protein: prefer .a3m, fall back to .fasta."""
     protein_dir = DATA_DIR / protein
-    a3m = protein_dir / f"{protein}.a3m"
-    fasta = protein_dir / f"{protein}.fasta"
+    a3m = protein_dir / f"{protein}_raw.a3m"
+    fasta = protein_dir / f"{protein}_raw.fasta"
 
     if a3m.exists():
         return a3m
