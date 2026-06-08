@@ -90,8 +90,8 @@ if __name__ == "__main__":
     parser.add_argument("--result_path", required=True)
     parser.add_argument("--base_repo_path", required=True)
     parser.add_argument("--experiment_folder_name", required=False)
-    parser.add_argument("--limit_axis", default=True)
-    parser.add_argument("--replot_all", default=False)
+    parser.add_argument("--limit_axis", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--replot_all", action=argparse.BooleanOptionalAction, default=False)
 
     args = parser.parse_args()
 
