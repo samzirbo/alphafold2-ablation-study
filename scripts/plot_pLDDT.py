@@ -7,6 +7,7 @@ def generate_notebook(path_to_plot_folder):
     pdb_files = list(Path(path_to_plot_folder).rglob("*.pdb"))
     print(path_to_plot_folder)
     print(pdb_files)
+    pdb_files = list(Path(path_to_plot_folder).glob("*.pdb"))
 
     nb = nbf.v4.new_notebook()
     cells = []

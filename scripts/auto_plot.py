@@ -91,6 +91,9 @@ def autoplot_plddt(result_path):
 
 
 
+def autoplot_plddt(base_repo_path):
+    print("Reading from ", base_repo_path)
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
@@ -112,7 +115,7 @@ if __name__ == "__main__":
 
     assert args.type in [None, "tmscore", "plddt"]
 
-    if args.type != "plddt":
+    if args.type is not "plddt":
         autoplot_tmscore(
             args.result_path,
             args.base_repo_path,
