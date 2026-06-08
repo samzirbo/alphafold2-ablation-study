@@ -272,12 +272,13 @@ def plot_tm_score(
         ax.set_ylim(get_axis_lower_limit(protein), 1)
     ax.set_aspect("auto", adjustable="box")
 
-    if experiment_name is not None:
-        title = "Experiment: " + experiment_name + "\n" + title
     if title is not None:
         plt.title(title, fontsize=10)
     else:
-        plt.title(f"{protein} | Depth: {depth_text}", fontsize=10)
+        title = f"{protein} | Depth: {depth_text}"
+        if experiment_name is not None:
+            title = "Experiment: " + experiment_name + "\n" + title
+        plt.title(title, fontsize=10)
 
     if output_dir is not None:
         if output_dir[-1] != "/":
