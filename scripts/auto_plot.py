@@ -110,12 +110,15 @@ if __name__ == "__main__":
         type=lambda x: x.lower() == "true",
         default=False
     )
+    parser.add_argument("--limit_axis", default=True)
+    parser.add_argument("--replot_all", default=False)
+    parser.add_argument("--type", default=None)
 
     args = parser.parse_args()
 
     assert args.type in [None, "tmscore", "plddt"]
 
-    if args.type is not "plddt":
+    if args.type != "plddt":
         autoplot_tmscore(
             args.result_path,
             args.base_repo_path,
