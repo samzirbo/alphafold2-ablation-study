@@ -171,7 +171,10 @@ def plot_tm_score(
 
     Scatterplot of IF-OF / inactive-active TM-scores for different MSA depths.
     """
-    data = pd.read_csv(data_file)
+    try:
+        data = pd.read_csv(data_file)
+    except pd.errors.EmptyDataError as e:
+        raise pd.errors.EmptyDataError(f"No columns to parse from file: {data_file}") from e
 
     if protein is None:
         assert data["protein"].unique().size == 1
