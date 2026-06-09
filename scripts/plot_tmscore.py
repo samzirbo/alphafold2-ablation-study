@@ -312,7 +312,11 @@ def main():
     plot_parser.add_argument("--save_file", type=str, default=None)
     plot_parser.add_argument("--protein", type=str, default=None)
     plot_parser.add_argument("--title", type=str, default=None)
-    plot_parser.add_argument("--limit_axis", action=argparse.BooleanOptionalAction, default=True)
+    plot_parser.add_argument(
+        "--limit_axis",
+        type=lambda x: x.lower() == "true",
+        default=True
+    )
     plot_parser.add_argument("--output_dir", type=str, default=None)
 
     full_parser = subparsers.add_parser("all", help="Run calc + plot")
@@ -323,10 +327,15 @@ def main():
     full_parser.add_argument("--output_file", type=str, default=None)
     full_parser.add_argument("--save_file", type=str, default=None)
     full_parser.add_argument("--title", type=str, default=None)
-    full_parser.add_argument("--limit_axis", action=argparse.BooleanOptionalAction, default=True)
+    full_parser.add_argument(
+        "--limit_axis",
+        type=lambda x: x.lower() == "true",
+        default=True
+    )
     full_parser.add_argument("--output_dir", type=str, default=None)
 
     args = parser.parse_args()
+    assert args.limit_axis in [True, False]
     if args.command == "calc":
         _ = calc_tm_score_folders(
             protein=args.protein,
