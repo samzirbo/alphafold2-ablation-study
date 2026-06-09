@@ -118,11 +118,6 @@ def autoplot_plddt(result_path, force_replot):
 
 
 
-
-
-def autoplot_plddt(base_repo_path):
-    print("Reading from ", base_repo_path)
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 

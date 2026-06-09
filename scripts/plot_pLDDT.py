@@ -5,10 +5,6 @@ from pathlib import Path
 
 def generate_notebook(path_to_plot_folder, path_to_new_notebook):
     pdb_files = list(Path(path_to_plot_folder).rglob("*.pdb"))
-    print(path_to_plot_folder)
-    print(pdb_files)
-    pdb_files = list(Path(path_to_plot_folder).glob("*.pdb"))
-
     nb = nbf.v4.new_notebook()
     cells = []
 
