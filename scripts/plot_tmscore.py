@@ -158,7 +158,8 @@ def plot_tm_score(
         title: str = None,
         limit_axis: bool = True,
         output_dir: str = None,
-        experiment_name: str = None
+        experiment_name: str = None,
+        axis_bounds: tuple[float, float, float, float] = None
 ) -> None:
     """
     :param data_file: path to csv file
@@ -168,6 +169,12 @@ def plot_tm_score(
     :param limit_axis: if the axis should be lower limited
     :param output_dir: directory to save the plot
     :param experiment_name: name of the experiment
+    :param axis_bounds: [l_x, h_x, l_y, h_y]
+            where:
+            - l_x: lower x bound
+            - h_x: upper x bound
+            - l_y: lower y bound
+            - h_y: upper y bound
 
     Scatterplot of IF-OF / inactive-active TM-scores for different MSA depths.
     """
@@ -271,8 +278,12 @@ def plot_tm_score(
         depth_text = f"{unique_depths[0]}"
 
     if limit_axis:
-        ax.set_xlim(get_axis_lower_limit(protein), 1)
-        ax.set_ylim(get_axis_lower_limit(protein), 1)
+        if axis_bounds is None:
+            ax.set_xlim(get_axis_lower_limit(protein), 1)
+            ax.set_ylim(get_axis_lower_limit(protein), 1)
+        else:
+            ax.set_xlim(axis_bounds[0], axis_bounds[1])
+            ax.set_ylim(axis_bounds[2], axis_bounds[3])
     ax.set_aspect("auto", adjustable="box")
 
     if title is not None:
@@ -315,8 +326,20 @@ def main():
     plot_parser.add_argument("--save_file", type=str, default=None)
     plot_parser.add_argument("--protein", type=str, default=None)
     plot_parser.add_argument("--title", type=str, default=None)
-    plot_parser.add_argument("--limit_axis", action=argparse.BooleanOptionalAction, default=True)
+    plot_parser.add_argument(
+        "--limit_axis",
+        type=lambda x: x.lower() == "true",
+        default=True
+    )
     plot_parser.add_argument("--output_dir", type=str, default=None)
+    plot_parser.add_argument(
+        "--axis_bounds",
+        nargs=4,
+        type=float,
+        metavar=("L_X", "H_X", "L_Y", "H_Y"),
+        help="axis limits as l_x h_x l_y h_y",
+        default=None
+    )
 
     full_parser = subparsers.add_parser("all", help="Run calc + plot")
     full_parser.add_argument("--protein", type=str, default=None)
@@ -326,10 +349,24 @@ def main():
     full_parser.add_argument("--output_file", type=str, default=None)
     full_parser.add_argument("--save_file", type=str, default=None)
     full_parser.add_argument("--title", type=str, default=None)
-    full_parser.add_argument("--limit_axis", action=argparse.BooleanOptionalAction, default=True)
+    full_parser.add_argument(
+        "--limit_axis",
+        type=lambda x: x.lower() == "true",
+        default=True
+    )
+    full_parser.add_argument(
+        "--axis_bounds",
+        nargs=4,
+        type=float,
+        metavar=("L_X", "H_X", "L_Y", "H_Y"),
+        help="axis limits as l_x h_x l_y h_y",
+        default=None
+    )
     full_parser.add_argument("--output_dir", type=str, default=None)
 
     args = parser.parse_args()
+    assert args.limit_axis in [True, False]
+
     if args.command == "calc":
         _ = calc_tm_score_folders(
             protein=args.protein,
@@ -346,7 +383,8 @@ def main():
             protein=args.protein,
             title=args.title,
             limit_axis=args.limit_axis,
-            output_dir=args.output_dir
+            output_dir=args.output_dir,
+            axis_bounds=args.axis_bounds
         )
     elif args.command == "all":
         data_file = calc_tm_score_folders(
@@ -363,7 +401,8 @@ def main():
             protein=args.protein,
             title=args.title,
             limit_axis=args.limit_axis,
-            output_dir=args.output_dir
+            output_dir=args.output_dir,
+            axis_bounds=args.axis_bounds
         )
 
 

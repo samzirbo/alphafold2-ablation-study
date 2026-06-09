@@ -23,7 +23,14 @@ proteins = [
 ]
 
 
-def autoplot_tmscore(result_path, base_repo_path, limit_axis=True, experiment_folder_name=None, force_replot=False):
+def autoplot_tmscore(
+        result_path,
+        base_repo_path,
+        limit_axis=True,
+        experiment_folder_name=None,
+        force_replot=False,
+        axis_bounds=None
+    ):
     if experiment_folder_name is None:
         print("Plotting all subfolders of ", base_repo_path)
     else:
@@ -76,11 +83,12 @@ def autoplot_tmscore(result_path, base_repo_path, limit_axis=True, experiment_fo
                                     print("Generated TM-score CSV file: " + csv_path)
                                 plot_tm_score(
                                     experiment_result_dir + "/" + protein_name + ".csv",
-                                    protein=protein_name,
                                     save_file_name=protein_name + ".png",
+                                    protein=protein_name,
                                     limit_axis=limit_axis,
                                     output_dir=experiment_result_dir,
-                                    experiment_name=experiment_name
+                                    experiment_name=experiment_name,
+                                    axis_bounds=axis_bounds
                                 )
 
 
@@ -100,6 +108,14 @@ if __name__ == "__main__":
         type=lambda x: x.lower() == "true",
         default=False
     )
+    parser.add_argument(
+        "--axis_bounds",
+        nargs=4,
+        type=float,
+        metavar=("L_X", "H_X", "L_Y", "H_Y"),
+        help="axis limits as l_x h_x l_y h_y",
+        default=None
+    )
 
     args = parser.parse_args()
 
@@ -108,5 +124,6 @@ if __name__ == "__main__":
         args.base_repo_path,
         args.limit_axis,
         args.experiment_folder_name,
-        args.replot_all
+        args.replot_all,
+        args.axis_bounds
     )
