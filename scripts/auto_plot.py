@@ -26,10 +26,9 @@ proteins = [
 
 def autoplot_tmscore(result_path, base_repo_path, limit_axis=True, experiment_folder_name=None, force_replot=False):
     if experiment_folder_name is None:
-        print("Plotting all subfolders of ", base_repo_path)
+        print("Plotting all subfolders of ", result_path)
     else:
         print("Plotting only experiment ", experiment_folder_name)
-    print("Saving results in ", result_path)
 
     all_subdirectories = glob.glob(os.path.join(result_path, '*'))
 
@@ -43,7 +42,7 @@ def autoplot_tmscore(result_path, base_repo_path, limit_axis=True, experiment_fo
                 filtered_subdirectories.append(subdir)
                 break
     if not filtered_subdirectories:
-        print("No experiments found in ", base_repo_path)
+        print("No experiments found in ", result_path)
 
     plots_dir = os.path.join(result_path, "plots/TM_Score")
     os.makedirs(plots_dir, exist_ok=True)
@@ -85,9 +84,39 @@ def autoplot_tmscore(result_path, base_repo_path, limit_axis=True, experiment_fo
                                 )
 
 
-def autoplot_plddt(result_path):
-    print("Reading from ", result_path)
-    generate_notebook(result_path)
+def autoplot_plddt(result_path, force_replot):
+    print("Generating 3D plots for all subfolders of ", result_path)
+    all_subdirectories = glob.glob(os.path.join(result_path, '*'))
+
+    filtered_subdirectories = []
+    for subdir in all_subdirectories:
+        if os.path.isdir(subdir) and os.path.basename(subdir) not in directories_to_exclude:
+            filtered_subdirectories.append(subdir)
+    if not filtered_subdirectories:
+        print("No experiments found in ", result_path)
+
+    plots_dir = os.path.join(result_path, "plots/pLDDT")
+    os.makedirs(plots_dir, exist_ok=True)
+
+    for start_path in filtered_subdirectories:
+        found = []
+        for root, dirs, files in os.walk(start_path):
+            for protein_name in proteins:
+                for d in dirs:
+                    if protein_name == d:
+                        full_path = os.path.join(root, d)
+                        if full_path not in found:
+                            found.append(full_path)
+                            experiment_name = full_path.split("/")[-2]
+                            experiment_dir = os.path.join(plots_dir, experiment_name)
+                            os.makedirs(experiment_dir, exist_ok=True)
+                            ipynb_path = experiment_dir + "/" + experiment_name + "_" + protein_name + ".ipynb"
+                            if os.path.exists(ipynb_path) and not force_replot:
+                                print("Skipped: ", ipynb_path)
+                            else:
+                                generate_notebook(full_path, ipynb_path)
+
+
 
 
 
@@ -110,13 +139,13 @@ if __name__ == "__main__":
         type=lambda x: x.lower() == "true",
         default=False
     )
-    parser.add_argument("--limit_axis", default=True)
-    parser.add_argument("--replot_all", default=False)
     parser.add_argument("--type", default=None)
 
     args = parser.parse_args()
 
     assert args.type in [None, "tmscore", "plddt"]
+    assert args.limit_axis in [True, False]
+    assert args.replot_all in [True, False]
 
     if args.type != "plddt":
         autoplot_tmscore(
@@ -128,4 +157,7 @@ if __name__ == "__main__":
         )
 
     if args.type != "tmscore":
-        autoplot_plddt(args.result_path)
+        autoplot_plddt(
+            args.result_path,
+            args.replot_all
+        )
