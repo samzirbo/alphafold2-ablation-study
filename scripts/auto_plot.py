@@ -29,7 +29,9 @@ def autoplot_tmscore(
         limit_axis=True,
         experiment_folder_name=None,
         force_replot=False,
-        axis_bounds=None
+        axis_bounds=None,
+        plot_guidelines=True,
+        font_size=8
     ):
     if experiment_folder_name is None:
         print("Plotting all subfolders of ", base_repo_path)
@@ -81,15 +83,11 @@ def autoplot_tmscore(
                                         experiment_result_dir
                                     )
                                     print("Generated TM-score CSV file: " + csv_path)
-                                plot_tm_score(
-                                    experiment_result_dir + "/" + protein_name + ".csv",
-                                    save_file_name=protein_name + ".png",
-                                    protein=protein_name,
-                                    limit_axis=limit_axis,
-                                    output_dir=experiment_result_dir,
-                                    experiment_name=experiment_name,
-                                    axis_bounds=axis_bounds
-                                )
+                                plot_tm_score(experiment_result_dir + "/" + protein_name + ".csv",
+                                              save_file_name=protein_name + ".png", protein=protein_name,
+                                              limit_axis=limit_axis, output_dir=experiment_result_dir,
+                                              experiment_name=experiment_name, axis_bounds=axis_bounds,
+                                              plot_guidelines=plot_guidelines, font_size=font_size)
 
 
 if __name__ == "__main__":
@@ -116,6 +114,12 @@ if __name__ == "__main__":
         help="axis limits as l_x h_x l_y h_y",
         default=None
     )
+    parser.add_argument("--font_size", type=int, default=8)
+    parser.add_argument(
+        "--guidelines",
+        type=lambda x: x.lower() == "true",
+        default=True
+    )
 
     args = parser.parse_args()
 
@@ -125,5 +129,7 @@ if __name__ == "__main__":
         args.limit_axis,
         args.experiment_folder_name,
         args.replot_all,
-        args.axis_bounds
+        args.axis_bounds,
+        args.plot_guiderails,
+        args.font_size
     )

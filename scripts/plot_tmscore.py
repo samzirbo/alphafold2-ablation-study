@@ -4,6 +4,7 @@ import warnings
 from pathlib import Path
 
 import matplotlib.colors as mcolors
+from matplotlib.ticker import MultipleLocator, MaxNLocator
 import numpy as np
 import pandas as pd
 from matplotlib import pyplot as plt
@@ -142,7 +143,7 @@ def get_axis_lower_limit(protein: str) -> float:
 
 def depth_color(depth: int):
     values = [16, 32, 64, 128, 256, 512, 1024, 5120]
-    cmap = plt.cm.plasma
+    cmap = plt.cm.gist_rainbow
     positions = np.linspace(0, 1, len(values))
     color_dict = {
         v: mcolors.to_hex(cmap(p))
@@ -159,7 +160,9 @@ def plot_tm_score(
         limit_axis: bool = True,
         output_dir: str = None,
         experiment_name: str = None,
-        axis_bounds: tuple[float, float, float, float] = None
+        axis_bounds: tuple[float, float, float, float] = None,
+        plot_guidelines = True,
+        font_size: int = 6
 ) -> None:
     """
     :param data_file: path to csv file
@@ -175,6 +178,8 @@ def plot_tm_score(
             - h_x: upper x bound
             - l_y: lower y bound
             - h_y: upper y bound
+    :param plot_guidelines: whether to plot guidelines with IF/OF TM score
+    :param font_size: font size
 
     Scatterplot of IF-OF / inactive-active TM-scores for different MSA depths.
     """
@@ -219,19 +224,29 @@ def plot_tm_score(
 
     ax.set_xlabel(
         f"Similarity to {x_label} conformation (TM-score)",
-        fontsize=7,
+        fontsize=font_size + 1,
+        labelpad=font_size + 4,
         fontweight="bold"
     )
 
     ax.set_ylabel(
         f"Similarity to {y_label} conformation (TM-score)",
-        fontsize=7,
+        fontsize=font_size + 1,
+        labelpad=font_size + 4,
         fontweight="bold"
     )
 
-    ax.tick_params(axis="both", labelsize=9)
+    ax.xaxis.set_major_locator(MaxNLocator(nbins=6))
+    ax.yaxis.set_major_locator(MaxNLocator(nbins=6))
+
+    ax.tick_params(axis="both", labelsize=font_size + 3)
     ax.set_aspect("equal", adjustable="box")
     ax.set_facecolor("white")
+
+    for tick in ax.get_xticklabels():
+        tick.set_fontweight('bold')
+    for tick in ax.get_yticklabels():
+        tick.set_fontweight('bold')
 
     ax.spines["top"].set_visible(True)
     ax.spines["right"].set_visible(True)
@@ -240,9 +255,10 @@ def plot_tm_score(
         spine.set_linewidth(0.5)
         spine.set_color("black")
 
-    reference_tm = float(data.loc[0]["reference_tm"])
-    plt.axvline(x=reference_tm, c="gray", linestyle="--")
-    plt.axhline(y=reference_tm, c="gray", linestyle="--")
+    if plot_guidelines:
+        reference_tm = float(data.loc[0]["reference_tm"])
+        plt.axvline(x=reference_tm, c="gray", linestyle="--")
+        plt.axhline(y=reference_tm, c="gray", linestyle="--")
 
     unique_depths = np.sort(data["nseq"].unique())
 
@@ -262,11 +278,14 @@ def plot_tm_score(
 
         cbar.set_label(
             "MSA depth (sequences)",
-            fontsize=7,
-            fontweight="bold"
+            fontsize=font_size + 1,
+            fontweight="bold",
+            labelpad=font_size + 1
         )
 
-        cbar.ax.tick_params(labelsize=6)
+        cbar.ax.tick_params(labelsize=font_size + 2)
+        for tick in cbar.ax.get_yticklabels():
+            tick.set_fontweight('bold')
 
         cbar.set_ticks(np.arange(len(unique_depths)) + 0.5)
         cbar.ax.tick_params(which="major", length=0)
@@ -287,12 +306,12 @@ def plot_tm_score(
     ax.set_aspect("auto", adjustable="box")
 
     if title is not None:
-        plt.title(title, fontsize=10)
+        plt.title(title, fontsize=font_size + 5, weight="bold", pad=font_size + 7)
     else:
         title = f"{protein} | Depth: {depth_text}"
         if experiment_name is not None:
             title = "Experiment: " + experiment_name + "\n" + title
-        plt.title(title, fontsize=10)
+        plt.title(title, fontsize=font_size + 5, weight="bold", pad=font_size + 7)
 
     if output_dir is not None:
         if output_dir[-1] != "/":
@@ -340,6 +359,12 @@ def main():
         help="axis limits as l_x h_x l_y h_y",
         default=None
     )
+    plot_parser.add_argument("--font_size", type=int, default=8)
+    plot_parser.add_argument(
+        "--guidelines",
+        type=lambda x: x.lower() == "true",
+        default=True
+    )
 
     full_parser = subparsers.add_parser("all", help="Run calc + plot")
     full_parser.add_argument("--protein", type=str, default=None)
@@ -354,6 +379,7 @@ def main():
         type=lambda x: x.lower() == "true",
         default=True
     )
+    full_parser.add_argument("--output_dir", type=str, default=None)
     full_parser.add_argument(
         "--axis_bounds",
         nargs=4,
@@ -362,10 +388,16 @@ def main():
         help="axis limits as l_x h_x l_y h_y",
         default=None
     )
-    full_parser.add_argument("--output_dir", type=str, default=None)
+    full_parser.add_argument("--font_size", type=int, default=8)
+    full_parser.add_argument(
+        "--guidelines",
+        type=lambda x: x.lower() == "true",
+        default=True
+    )
 
     args = parser.parse_args()
     assert args.limit_axis in [True, False]
+    assert args.guidelines in [True, False]
 
     if args.command == "calc":
         _ = calc_tm_score_folders(
@@ -384,10 +416,12 @@ def main():
             title=args.title,
             limit_axis=args.limit_axis,
             output_dir=args.output_dir,
-            axis_bounds=args.axis_bounds
+            axis_bounds=args.axis_bounds,
+            plot_guidelines=args.plot_guidelines,
+            font_size=args.font_size
         )
     elif args.command == "all":
-        data_file = calc_tm_score_folders(
+        _ = calc_tm_score_folders(
             protein=args.protein,
             reference_folder=args.reference_folder,
             target_folder=args.target_folder,
@@ -396,13 +430,15 @@ def main():
             output_dir=args.output_dir
         )
         plot_tm_score(
-            data_file=data_file,
+            data_file=args.data_file,
             save_file_name=args.save_file,
             protein=args.protein,
             title=args.title,
             limit_axis=args.limit_axis,
             output_dir=args.output_dir,
-            axis_bounds=args.axis_bounds
+            axis_bounds=args.axis_bounds,
+            plot_guidelines=args.plot_guidelines,
+            font_size=args.font_size
         )
 
 
