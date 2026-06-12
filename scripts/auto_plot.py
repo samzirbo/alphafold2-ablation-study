@@ -1,10 +1,8 @@
-import os
-import glob
-import sys
 import argparse
+import glob
+import os
 
 from plot_tmscore import calc_tm_score_folders, plot_tm_score
-from selenium.webdriver.common.actions import pointer_actions
 
 directories_to_exclude = ["archive", "plots"]
 
@@ -33,8 +31,10 @@ def autoplot_tmscore(
         axis_bounds=None,
         plot_guidelines=True,
         font_size=8,
-        opacity=1
-    ):
+        opacity=1,
+        model=None,
+        seed=None
+):
     if experiment_folder_name is None:
         print("Plotting all subfolders of ", base_repo_path)
     else:
@@ -82,14 +82,23 @@ def autoplot_tmscore(
                                         full_path,
                                         base_repo_path + "/data/metadata.json",
                                         protein_name + ".csv",
-                                        experiment_result_dir
+                                        experiment_result_dir,
+                                        model,
+                                        seed
                                     )
                                     print("Generated TM-score CSV file: " + csv_path)
-                                plot_tm_score(experiment_result_dir + "/" + protein_name + ".csv",
-                                              save_file_name=protein_name + ".png", protein=protein_name,
-                                              limit_axis=limit_axis, output_dir=experiment_result_dir,
-                                              experiment_name=experiment_name, axis_bounds=axis_bounds,
-                                              plot_guidelines=plot_guidelines, font_size=font_size, opacity=opacity)
+                                plot_tm_score(
+                                    experiment_result_dir + "/" + protein_name + ".csv",
+                                    save_file_name=protein_name + ".png",
+                                    protein=protein_name,
+                                    limit_axis=limit_axis,
+                                    output_dir=experiment_result_dir,
+                                    experiment_name=experiment_name,
+                                    axis_bounds=axis_bounds,
+                                    plot_guidelines=plot_guidelines,
+                                    font_size=font_size,
+                                    opacity=opacity
+                                )
 
 
 if __name__ == "__main__":
@@ -122,8 +131,9 @@ if __name__ == "__main__":
         type=lambda x: x.lower() == "true",
         default=True
     )
-    parser.add_argument("--opacity",type=float, default=1)
-
+    parser.add_argument("--opacity", type=float, default=1)
+    parser.add_argument("--model", type=str, default=None)
+    parser.add_argument("--seed", type=str, default=None)
 
     args = parser.parse_args()
 
@@ -136,5 +146,7 @@ if __name__ == "__main__":
         args.axis_bounds,
         args.plot_guiderails,
         args.font_size,
-        args.opacity
+        args.opacity,
+        args.model,
+        args.seed
     )

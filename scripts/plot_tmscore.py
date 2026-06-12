@@ -4,11 +4,10 @@ import warnings
 from pathlib import Path
 
 import matplotlib.colors as mcolors
-from matplotlib.ticker import MultipleLocator, MaxNLocator
+from matplotlib.ticker import MaxNLocator
 import numpy as np
 import pandas as pd
 from matplotlib import pyplot as plt
-from matplotlib.ticker import FormatStrFormatter
 from tmtools import tm_align
 from tmtools.io import get_structure, get_residue_data
 
@@ -62,7 +61,9 @@ def calc_tm_score_folders(
         target_folder: str,
         metadata_file: str,
         output_file_name: str,
-        output_dir: str
+        output_dir: str,
+        model:str = None,
+        seed:str = None
 ) -> str:
     """
     :param protein: protein name
@@ -71,6 +72,8 @@ def calc_tm_score_folders(
     :param metadata_file: path to metadata file
     :param output_file_name: name of output csv file
     :param output_dir: path to output folder
+    :param model: AF model
+    :param seed: AF model seed
 
     Calculate TM-score from folder of reference files and folder of target files,
     and return the result as csv file.
@@ -86,7 +89,9 @@ def calc_tm_score_folders(
     nseq = json.load(open(target_folder + "config.json"))["max_extra_seq"]
 
     reference_files = get_reference_files(protein, reference_folder, metadata_file)
-    target_files = [str(f) for f in Path(target_folder).glob(f"{protein}_unrelaxed_*_alphafold2_model_*_seed_*.pdb")]
+    target_files = [str(f) for f in Path(target_folder).glob(
+        f"{protein}_unrelaxed_*_alphafold2_model_{'*' if model is None else model}_seed_{'*' if seed is None else seed}.pdb"
+    )]
 
     if len(target_files) != 25:
         warnings.warn(f"There are {len(target_files)} in {target_folder}, instead of the expected 25!")
@@ -348,6 +353,8 @@ def main():
     plot_parser.add_argument("--save_file", type=str, default=None)
     plot_parser.add_argument("--protein", type=str, default=None)
     plot_parser.add_argument("--title", type=str, default=None)
+    plot_parser.add_argument("--model", type=str, default=None)
+    plot_parser.add_argument("--seed", type=str, default=None)
     plot_parser.add_argument(
         "--limit_axis",
         type=lambda x: x.lower() == "true",
@@ -378,6 +385,8 @@ def main():
     full_parser.add_argument("--output_file", type=str, default=None)
     full_parser.add_argument("--save_file", type=str, default=None)
     full_parser.add_argument("--title", type=str, default=None)
+    full_parser.add_argument("--model", type=str, default=None)
+    full_parser.add_argument("--seed", type=str, default=None)
     full_parser.add_argument(
         "--limit_axis",
         type=lambda x: x.lower() == "true",
@@ -411,7 +420,9 @@ def main():
             target_folder=args.target_folder,
             output_file_name=args.output_file,
             metadata_file=args.metadata_path,
-            output_dir=args.output_dir
+            output_dir=args.output_dir,
+            model=args.model,
+            seed=args.seed
         )
     elif args.command == "plot":
         plot_tm_score(
@@ -433,7 +444,9 @@ def main():
             target_folder=args.target_folder,
             output_file_name=args.output_file,
             metadata_file=args.metadata_path,
-            output_dir=args.output_dir
+            output_dir=args.output_dir,
+            model=args.model,
+            seed=args.seed
         )
         plot_tm_score(
             data_file=args.data_file,
@@ -447,7 +460,6 @@ def main():
             font_size=args.font_size,
             opacity=args.opacity
         )
-
 
 if __name__ == "__main__":
     main()
