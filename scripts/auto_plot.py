@@ -144,7 +144,7 @@ if __name__ == "__main__":
         args.experiment_folder_name,
         args.replot_all,
         args.axis_bounds,
-        args.plot_guiderails,
+        args.guidelines,
         args.font_size,
         args.opacity,
         args.model,
