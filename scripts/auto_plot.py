@@ -4,6 +4,7 @@ import sys
 import argparse
 
 from plot_tmscore import calc_tm_score_folders, plot_tm_score
+from selenium.webdriver.common.actions import pointer_actions
 
 directories_to_exclude = ["archive", "plots"]
 
@@ -31,7 +32,8 @@ def autoplot_tmscore(
         force_replot=False,
         axis_bounds=None,
         plot_guidelines=True,
-        font_size=8
+        font_size=8,
+        opacity=1
     ):
     if experiment_folder_name is None:
         print("Plotting all subfolders of ", base_repo_path)
@@ -87,7 +89,7 @@ def autoplot_tmscore(
                                               save_file_name=protein_name + ".png", protein=protein_name,
                                               limit_axis=limit_axis, output_dir=experiment_result_dir,
                                               experiment_name=experiment_name, axis_bounds=axis_bounds,
-                                              plot_guidelines=plot_guidelines, font_size=font_size)
+                                              plot_guidelines=plot_guidelines, font_size=font_size, opacity=opacity)
 
 
 if __name__ == "__main__":
@@ -120,6 +122,8 @@ if __name__ == "__main__":
         type=lambda x: x.lower() == "true",
         default=True
     )
+    parser.add_argument("--opacity",type=float, default=1)
+
 
     args = parser.parse_args()
 
@@ -131,5 +135,6 @@ if __name__ == "__main__":
         args.replot_all,
         args.axis_bounds,
         args.plot_guiderails,
-        args.font_size
+        args.font_size,
+        args.opacity
     )

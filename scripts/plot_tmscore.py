@@ -162,7 +162,8 @@ def plot_tm_score(
         experiment_name: str = None,
         axis_bounds: tuple[float, float, float, float] = None,
         plot_guidelines = True,
-        font_size: int = 6
+        font_size: int = 6,
+        opacity: float = 1
 ) -> None:
     """
     :param data_file: path to csv file
@@ -180,6 +181,7 @@ def plot_tm_score(
             - h_y: upper y bound
     :param plot_guidelines: whether to plot guidelines with IF/OF TM score
     :param font_size: font size
+    :param opacity of the points on the scatterplot
 
     Scatterplot of IF-OF / inactive-active TM-scores for different MSA depths.
     """
@@ -216,7 +218,8 @@ def plot_tm_score(
         c=[depth_color(d) for d in data["nseq"]],
         s=25,
         edgecolors="black",
-        linewidths=0.375
+        linewidths=0.375,
+        alpha=opacity
     )
 
     x_label = "inward-facing" if structure_type == "conformational" else "inactive"
@@ -365,6 +368,7 @@ def main():
         type=lambda x: x.lower() == "true",
         default=True
     )
+    plot_parser.add_argument("--opacity", type=float, default=1)
 
     full_parser = subparsers.add_parser("all", help="Run calc + plot")
     full_parser.add_argument("--protein", type=str, default=None)
@@ -394,6 +398,7 @@ def main():
         type=lambda x: x.lower() == "true",
         default=True
     )
+    full_parser.add_argument("--opacity", type=float, default=1)
 
     args = parser.parse_args()
     assert args.limit_axis in [True, False]
@@ -418,7 +423,8 @@ def main():
             output_dir=args.output_dir,
             axis_bounds=args.axis_bounds,
             plot_guidelines=args.plot_guidelines,
-            font_size=args.font_size
+            font_size=args.font_size,
+            opacity=args.opacity
         )
     elif args.command == "all":
         _ = calc_tm_score_folders(
@@ -438,7 +444,8 @@ def main():
             output_dir=args.output_dir,
             axis_bounds=args.axis_bounds,
             plot_guidelines=args.plot_guidelines,
-            font_size=args.font_size
+            font_size=args.font_size,
+            opacity=args.opacity
         )
 
 
