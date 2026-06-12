@@ -4,12 +4,15 @@ import warnings
 from pathlib import Path
 
 import matplotlib.colors as mcolors
+from matplotlib.lines import Line2D
 from matplotlib.ticker import MaxNLocator
+from matplotlib.font_manager import FontProperties
 import numpy as np
 import pandas as pd
 from matplotlib import pyplot as plt
 from tmtools import tm_align
 from tmtools.io import get_structure, get_residue_data
+
 
 
 def __calc_tm_score(file1_path: str, file2_path: str) -> tuple[float, int, int]:
@@ -168,7 +171,9 @@ def plot_tm_score(
         axis_bounds: tuple[float, float, float, float] = None,
         plot_guidelines = True,
         font_size: int = 6,
-        opacity: float = 1
+        opacity: float = 1,
+        color_on: str = "nseq",
+        shape_on: str = None
 ) -> None:
     """
     :param data_file: path to csv file
@@ -217,15 +222,60 @@ def plot_tm_score(
     fig, ax = plt.subplots(figsize=(5, 5), dpi=300)
     ax.grid(True, color="lightgray", linewidth=0.5, alpha=0.4)
 
-    scatter = ax.scatter(
-        data[x_col_name],
-        data[y_col_name],
-        c=[depth_color(d) for d in data["nseq"]],
-        s=25,
-        edgecolors="black",
-        linewidths=0.375,
-        alpha=opacity
-    )
+    if shape_on is not None:
+        markers = [
+            "o", "s", "^", "D", "v", "<", ">", "P", "X",
+            "*", "h", "H", "8", "p", "d"
+        ]
+
+        categories = data[shape_on].dropna().unique()
+        marker_map = {cat: markers[i % len(markers)] for i, cat in enumerate(categories)}
+
+        for cat in categories:
+            mask = data[shape_on] == cat
+            scatter = ax.scatter(
+                data.loc[mask, x_col_name],
+                data.loc[mask, y_col_name],
+                c=[depth_color(d) for d in data.loc[mask, color_on]] if color_on == "nseq" else data.loc[mask, color_on],
+                marker=marker_map[cat],
+                s=30,
+                edgecolors="black",
+                linewidths=0.375,
+                alpha=opacity
+            )
+
+        shape_handles = [
+            Line2D(
+                [0], [0],
+                marker=marker,
+                linestyle="",
+                markerfacecolor="lightgray",
+                markeredgecolor="black",
+                markersize=6,
+                label=str(cat),
+            )
+            for cat, marker in marker_map.items()
+        ]
+
+        ax.legend(
+            handles=shape_handles,
+            title=f"{shape_on} shape values:",
+            loc="upper center",
+            bbox_to_anchor=(0.5, -0.15),
+            ncol=len(shape_handles),
+            fontsize=font_size + 2,
+            title_fontproperties=FontProperties(weight="bold", size=font_size + 3)
+        )
+    else:
+        scatter = ax.scatter(
+            data[x_col_name],
+            data[y_col_name],
+            c=[depth_color(d) for d in data[color_on]] if color_on == "nseq" else data[color_on],
+            s=30,
+            edgecolors="black",
+            linewidths=0.375,
+            alpha=opacity
+        )
 
     x_label = "inward-facing" if structure_type == "conformational" else "inactive"
     y_label = "outward-facing" if structure_type == "conformational" else "active"
@@ -268,41 +318,51 @@ def plot_tm_score(
         plt.axvline(x=reference_tm, c="gray", linestyle="--")
         plt.axhline(y=reference_tm, c="gray", linestyle="--")
 
-    unique_depths = np.sort(data["nseq"].unique())
+    unique_depths = np.sort(data[color_on].unique())
 
-    if len(unique_depths) > 1:
-        depth_text = ", ".join([str(x) for x in unique_depths])
+    if color_on == "nseq":
+        if len(unique_depths) > 1:
+            depth_text = ", ".join([str(x) for x in unique_depths])
 
-        used_colors = [depth_color(d) for d in unique_depths]
-        cmap = mcolors.ListedColormap(used_colors)
+            used_colors = [depth_color(d) for d in unique_depths]
+            cmap = mcolors.ListedColormap(used_colors)
 
-        bounds = np.arange(len(unique_depths) + 1)
-        norm = mcolors.BoundaryNorm(bounds, cmap.N)
+            bounds = np.arange(len(unique_depths) + 1)
+            norm = mcolors.BoundaryNorm(bounds, cmap.N)
 
-        sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
-        sm.set_array([])
+            sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+            sm.set_array([])
 
-        cbar = plt.colorbar(sm, ax=ax)
+            cbar = plt.colorbar(sm, ax=ax)
 
+            cbar.set_label(
+                "MSA depth (sequences)",
+                fontsize=font_size + 1,
+                fontweight="bold",
+                labelpad=font_size + 1
+            )
+
+            cbar.ax.tick_params(labelsize=font_size + 2)
+            for tick in cbar.ax.get_yticklabels():
+                tick.set_fontweight('bold')
+
+            cbar.set_ticks(np.arange(len(unique_depths)) + 0.5)
+            cbar.ax.tick_params(which="major", length=0)
+            cbar.set_ticklabels([str(int(d)) for d in unique_depths])
+
+            cbar.ax.minorticks_off()
+            cbar.ax.tick_params(which="minor", length=0)
+        else:
+            depth_text = f"{unique_depths[0]}"
+    else:
+        depth_text = f"{unique_depths[0]}"
+        cbar = plt.colorbar(scatter, ax=ax)
         cbar.set_label(
-            "MSA depth (sequences)",
+            color_on,
             fontsize=font_size + 1,
             fontweight="bold",
             labelpad=font_size + 1
         )
-
-        cbar.ax.tick_params(labelsize=font_size + 2)
-        for tick in cbar.ax.get_yticklabels():
-            tick.set_fontweight('bold')
-
-        cbar.set_ticks(np.arange(len(unique_depths)) + 0.5)
-        cbar.ax.tick_params(which="major", length=0)
-        cbar.set_ticklabels([str(int(d)) for d in unique_depths])
-
-        cbar.ax.minorticks_off()
-        cbar.ax.tick_params(which="minor", length=0)
-    else:
-        depth_text = f"{unique_depths[0]}"
 
     if limit_axis:
         if axis_bounds is None:
@@ -376,6 +436,8 @@ def main():
         default=True
     )
     plot_parser.add_argument("--opacity", type=float, default=1)
+    plot_parser.add_argument("--color_on", type=str, default=None)
+    plot_parser.add_argument("--shape_on", type=str, default=None)
 
     full_parser = subparsers.add_parser("all", help="Run calc + plot")
     full_parser.add_argument("--protein", type=str, default=None)
@@ -408,6 +470,8 @@ def main():
         default=True
     )
     full_parser.add_argument("--opacity", type=float, default=1)
+    full_parser.add_argument("--color_on", type=str, default=None)
+    full_parser.add_argument("--shape_on", type=str, default=None)
 
     args = parser.parse_args()
     assert args.limit_axis in [True, False]
@@ -435,7 +499,9 @@ def main():
             axis_bounds=args.axis_bounds,
             plot_guidelines=args.plot_guidelines,
             font_size=args.font_size,
-            opacity=args.opacity
+            opacity=args.opacity,
+            color_on=args.color_on,
+            shape_on=args.shape_on
         )
     elif args.command == "all":
         _ = calc_tm_score_folders(
@@ -458,7 +524,9 @@ def main():
             axis_bounds=args.axis_bounds,
             plot_guidelines=args.plot_guidelines,
             font_size=args.font_size,
-            opacity=args.opacity
+            opacity=args.opacity,
+            color_on=args.color_on,
+            shape_on=args.shape_on
         )
 
 if __name__ == "__main__":

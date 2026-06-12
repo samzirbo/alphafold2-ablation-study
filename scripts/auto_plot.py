@@ -33,7 +33,9 @@ def autoplot_tmscore(
         font_size=8,
         opacity=1,
         model=None,
-        seed=None
+        seed=None,
+        color_on=None,
+        shape_on=None
 ):
     if experiment_folder_name is None:
         print("Plotting all subfolders of ", base_repo_path)
@@ -97,7 +99,9 @@ def autoplot_tmscore(
                                     axis_bounds=axis_bounds,
                                     plot_guidelines=plot_guidelines,
                                     font_size=font_size,
-                                    opacity=opacity
+                                    opacity=opacity,
+                                    color_on=color_on,
+                                    shape_on=shape_on,
                                 )
 
 
@@ -134,6 +138,8 @@ if __name__ == "__main__":
     parser.add_argument("--opacity", type=float, default=1)
     parser.add_argument("--model", type=str, default=None)
     parser.add_argument("--seed", type=str, default=None)
+    parser.add_argument("--color_on", type=str, default=None)
+    parser.add_argument("--shape_on", type=str, default=None)
 
     args = parser.parse_args()
 
@@ -148,5 +154,7 @@ if __name__ == "__main__":
         args.font_size,
         args.opacity,
         args.model,
-        args.seed
+        args.seed,
+        args.color_on,
+        args.shape_on
     )
