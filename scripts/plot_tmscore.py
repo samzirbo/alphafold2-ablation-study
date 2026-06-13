@@ -1,7 +1,9 @@
 import argparse
 import json
 import warnings
+from datetime import datetime
 from pathlib import Path
+from typing import Union, List
 
 import matplotlib.colors as mcolors
 from matplotlib.lines import Line2D
@@ -407,6 +409,62 @@ def plot_tm_score(
     plt.close()
 
 
+def combine_plots(
+        data_files: Union[List [str], str],
+        save_file_name: str = None,
+        protein: str = None,
+        title: str = None,
+        limit_axis: bool = True,
+        output_dir: str = None,
+        experiment_name: str = None,
+        axis_bounds: tuple[float, float, float, float] = None,
+        plot_guidelines = True,
+        font_size: int = 6,
+        opacity: float = 1,
+        color_on: str = None,
+        shape_on: str = None
+) -> None:
+    dfs = []
+    ref_cols = None
+
+    for f in data_files:
+        df = pd.read_csv(f)
+
+        if ref_cols is None:
+            ref_cols = df.columns
+        else:
+            assert set(df.columns) == set(ref_cols), \
+                f"Columns of {f} do not match"
+
+        dfs.append(df)
+
+    combined_df = pd.concat(dfs, ignore_index=True)
+
+    filename = (
+        f"{('').join(data_files[0].split(".")[:-1])}_COMBINED_"
+        f"{datetime.now().strftime('%m_%d_%H_%M')}.csv"
+    )
+
+    combined_df.to_csv(filename, index=False)
+    print("Saved COMBINED file to", filename)
+
+    plot_tm_score(
+        filename,
+        save_file_name,
+        protein,
+        title,
+        limit_axis,
+        output_dir,
+        experiment_name,
+        axis_bounds,
+        plot_guidelines,
+        font_size,
+        opacity,
+        color_on,
+        shape_on
+    )
+
+
 def main():
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -418,6 +476,43 @@ def main():
     calc_parser.add_argument("--output_file", type=str, default=None)
     calc_parser.add_argument("--metadata_path", type=str, required=True)
     calc_parser.add_argument("--output_dir", type=str, default=None)
+
+    combine_parser = subparsers.add_parser("combine", help="Combine files and plot TM-scores")
+    combine_parser.add_argument(
+        "--data_files",
+        nargs="+",
+        type=str,
+        required=True,
+        help="One or more CSV files"
+    )
+    combine_parser.add_argument("--save_file", type=str, default=None)
+    combine_parser.add_argument("--protein", type=str, default=None)
+    combine_parser.add_argument("--title", type=str, default=None)
+    combine_parser.add_argument("--model", type=str, default=None)
+    combine_parser.add_argument("--seed", type=str, default=None)
+    combine_parser.add_argument(
+        "--limit_axis",
+        type=lambda x: x.lower() == "true",
+        default=True
+    )
+    combine_parser.add_argument("--output_dir", type=str, default=None)
+    combine_parser.add_argument(
+        "--axis_bounds",
+        nargs=4,
+        type=float,
+        metavar=("L_X", "H_X", "L_Y", "H_Y"),
+        help="axis limits as l_x h_x l_y h_y",
+        default=None
+    )
+    combine_parser.add_argument("--font_size", type=int, default=8)
+    combine_parser.add_argument(
+        "--guidelines",
+        type=lambda x: x.lower() == "true",
+        default=True
+    )
+    combine_parser.add_argument("--opacity", type=float, default=1)
+    combine_parser.add_argument("--color_on", type=str, default=None)
+    combine_parser.add_argument("--shape_on", type=str, default=None)
 
     plot_parser = subparsers.add_parser("plot", help="Plot TM-score results from CSV")
     plot_parser.add_argument("--data_file", type=str, required=True)
@@ -498,6 +593,21 @@ def main():
             output_dir=args.output_dir,
             model=args.model,
             seed=args.seed
+        )
+    elif args.command == "combine":
+        combine_plots(
+            data_files=args.data_files,
+            save_file_name=args.save_file,
+            protein=args.protein,
+            title=args.title,
+            limit_axis=args.limit_axis,
+            output_dir=args.output_dir,
+            axis_bounds=args.axis_bounds,
+            plot_guidelines=args.plot_guidelines,
+            font_size=args.font_size,
+            opacity=args.opacity,
+            color_on=args.color_on,
+            shape_on=args.shape_on
         )
     elif args.command == "plot":
         plot_tm_score(
