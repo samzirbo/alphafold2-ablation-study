@@ -181,7 +181,7 @@ def plot_tm_score(
         plot_guidelines = True,
         font_size: int = 6,
         opacity: float = 1,
-        color_on: str = "nseq",
+        color_on: str = None,
         shape_on: str = None
 ) -> None:
     """
@@ -216,6 +216,8 @@ def plot_tm_score(
 
     protein = data["protein"].unique()[0]
 
+    color_on = "nseq" if color_on is None else color_on
+
     assert ("tm_IF" in data.columns and "tm_OF" in data.columns) or ("tm_A" in data.columns and "tm_I" in data.columns)
     structure_type = "conformational" if "tm_IF" in data.columns else "functional"
 
@@ -226,7 +228,7 @@ def plot_tm_score(
         x_col_name = "tm_I"
         y_col_name = "tm_A"
 
-    data = data.sort_values("nseq")
+    data = data.sort_values(color_on)
 
     fig, ax = plt.subplots(figsize=(5, 5), dpi=300)
     ax.grid(True, color="lightgray", linewidth=0.5, alpha=0.4)
@@ -445,8 +447,8 @@ def main():
         default=True
     )
     plot_parser.add_argument("--opacity", type=float, default=1)
-    plot_parser.add_argument("--color_on", type=str)
-    plot_parser.add_argument("--shape_on", type=str)
+    plot_parser.add_argument("--color_on", type=str, default=None)
+    plot_parser.add_argument("--shape_on", type=str, default=None)
 
     full_parser = subparsers.add_parser("all", help="Run calc + plot")
     full_parser.add_argument("--protein", type=str, default=None)
@@ -479,8 +481,8 @@ def main():
         default=True
     )
     full_parser.add_argument("--opacity", type=float, default=1)
-    full_parser.add_argument("--color_on", type=str)
-    full_parser.add_argument("--shape_on", type=str)
+    full_parser.add_argument("--color_on", type=str, default=None)
+    full_parser.add_argument("--shape_on", type=str, default=None)
 
     args = parser.parse_args()
     assert args.limit_axis in [True, False]
