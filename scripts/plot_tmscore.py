@@ -368,7 +368,7 @@ def plot_tm_score(
         else:
             depth_text = f"{unique_depths[0]}"
     else:
-        depth_text = f"{unique_depths[0]}"
+        depth_text = f"{', '.join([str(x) for x in np.sort(data["nseq"].unique()).tolist()])}"
         cbar = plt.colorbar(scatter, ax=ax)
         cbar.set_label(
             color_on,
