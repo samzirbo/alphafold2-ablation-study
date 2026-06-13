@@ -102,12 +102,21 @@ def calc_tm_score_folders(
     results_df = pd.DataFrame()
     reference_tm, _, _ = __calc_tm_score(reference_files[0], reference_files[1])
     for target_file in target_files:
-        row = {"protein": protein, "nseq": nseq, "reference_tm": reference_tm}
+        row = {
+            "protein": protein,
+            "nseq": nseq,
+            "reference_tm": reference_tm,
+            "seed": target_file.split("_")[-1].split(".")[0],
+            "model": target_file.split("_")[-3],
+            "experiment": output_dir.split("/")[:-1]
+        }
         for reference_file in reference_files:
             tm_score, len_seq1, len_seq2 = __calc_tm_score(
                 reference_file,
                 target_file
             )
+            row["len_seq1"] = len_seq1
+            row["len_seq2"] = len_seq2
 
             ref_type = reference_file.split("/")[-1].split("_")[0].lower()
             if "active" == ref_type:
