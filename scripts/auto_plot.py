@@ -40,7 +40,7 @@ def autoplot_tmscore(
     if experiment_folder_name is None:
         print("Plotting all subfolders of ", result_path)
     else:
-        print("Plotting only experiment ", result_path + "/" + experiment_folder_name)
+        print("Plotting only experiment ", result_path + experiment_folder_name)
 
     all_subdirectories = glob.glob(os.path.join(result_path, '*'))
 
@@ -50,7 +50,7 @@ def autoplot_tmscore(
             if os.path.isdir(subdir) and os.path.basename(subdir) not in directories_to_exclude:
                 filtered_subdirectories.append(subdir)
         else:
-            if os.path.isdir(subdir) and experiment_folder_name in subdir:
+            if os.path.isdir(subdir) and experiment_folder_name == os.path.basename(subdir):
                 filtered_subdirectories.append(subdir)
                 break
     if not filtered_subdirectories:

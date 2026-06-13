@@ -108,7 +108,7 @@ def calc_tm_score_folders(
             "reference_tm": reference_tm,
             "seed": target_file.split("_")[-1].split(".")[0],
             "model": target_file.split("_")[-3],
-            "experiment": output_dir.split("/")[:-1]
+            "experiment": output_dir.split("/")[-1]
         }
         for reference_file in reference_files:
             tm_score, len_seq1, len_seq2 = __calc_tm_score(
