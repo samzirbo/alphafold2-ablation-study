@@ -108,8 +108,8 @@ def calc_tm_score_folders(
             "protein": protein,
             "nseq": nseq,
             "reference_tm": reference_tm,
-            "seed": target_file.split("_")[-1].split(".")[0],
-            "model": target_file.split("_")[-3],
+            "seed": int(target_file.split("_")[-1].split(".")[0]),
+            "model": int(target_file.split("_")[-3]),
             "experiment": output_dir.split("/")[-1]
         }
         for reference_file in reference_files:
