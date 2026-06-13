@@ -445,8 +445,8 @@ def main():
         default=True
     )
     plot_parser.add_argument("--opacity", type=float, default=1)
-    plot_parser.add_argument("--color_on", type=str, default=None)
-    plot_parser.add_argument("--shape_on", type=str, default=None)
+    plot_parser.add_argument("--color_on", type=str)
+    plot_parser.add_argument("--shape_on", type=str)
 
     full_parser = subparsers.add_parser("all", help="Run calc + plot")
     full_parser.add_argument("--protein", type=str, default=None)
@@ -479,8 +479,8 @@ def main():
         default=True
     )
     full_parser.add_argument("--opacity", type=float, default=1)
-    full_parser.add_argument("--color_on", type=str, default=None)
-    full_parser.add_argument("--shape_on", type=str, default=None)
+    full_parser.add_argument("--color_on", type=str)
+    full_parser.add_argument("--shape_on", type=str)
 
     args = parser.parse_args()
     assert args.limit_axis in [True, False]

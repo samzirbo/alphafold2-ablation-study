@@ -34,14 +34,13 @@ def autoplot_tmscore(
         opacity=1,
         model=None,
         seed=None,
-        color_on=None,
+        color_on="nseq",
         shape_on=None
 ):
     if experiment_folder_name is None:
-        print("Plotting all subfolders of ", base_repo_path)
+        print("Plotting all subfolders of ", result_path)
     else:
-        print("Plotting only experiment ", experiment_folder_name)
-    print("Saving results in ", result_path)
+        print("Plotting only experiment ", result_path + "/" + experiment_folder_name)
 
     all_subdirectories = glob.glob(os.path.join(result_path, '*'))
 
@@ -55,10 +54,11 @@ def autoplot_tmscore(
                 filtered_subdirectories.append(subdir)
                 break
     if not filtered_subdirectories:
-        print("No experiments found in ", base_repo_path)
+        print("No experiments found in ", result_path)
 
     plots_dir = os.path.join(result_path, "plots/TM_Score")
     os.makedirs(plots_dir, exist_ok=True)
+    print("Saving results in ", plots_dir)
 
     for start_path in filtered_subdirectories:
         found = []
@@ -138,7 +138,7 @@ if __name__ == "__main__":
     parser.add_argument("--opacity", type=float, default=1)
     parser.add_argument("--model", type=str, default=None)
     parser.add_argument("--seed", type=str, default=None)
-    parser.add_argument("--color_on", type=str, default=None)
+    parser.add_argument("--color_on", type=str)
     parser.add_argument("--shape_on", type=str, default=None)
 
     args = parser.parse_args()
