@@ -14,7 +14,10 @@ import pandas as pd
 from matplotlib import pyplot as plt
 from tmtools import tm_align
 from tmtools.io import get_structure, get_residue_data
+from rich.console import Console
+from rich.progress import BarColumn, MofNCompleteColumn, Progress, SpinnerColumn, TextColumn
 
+console = Console()
 
 
 def __calc_tm_score(file1_path: str, file2_path: str) -> tuple[float, int, int]:
@@ -103,35 +106,47 @@ def calc_tm_score_folders(
 
     results_df = pd.DataFrame()
     reference_tm, _, _ = __calc_tm_score(reference_files[0], reference_files[1])
-    for target_file in target_files:
-        row = {
-            "protein": protein,
-            "nseq": nseq,
-            "reference_tm": reference_tm,
-            "seed": int(target_file.split("_")[-1].split(".")[0]),
-            "model": int(target_file.split("_")[-3]),
-            "experiment": output_dir.split("/")[-1]
-        }
-        for reference_file in reference_files:
-            tm_score, len_seq1, len_seq2 = __calc_tm_score(
-                reference_file,
-                target_file
-            )
-            row["len_seq1"] = len_seq1
-            row["len_seq2"] = len_seq2
+    progress = Progress(
+        SpinnerColumn(),
+        TextColumn(f"  {protein} TM-score"),
+        BarColumn(),
+        MofNCompleteColumn(),
+        TextColumn("models"),
+        console=console,
+    )
 
-            ref_type = reference_file.split("/")[-1].split("_")[0].lower()
-            if "active" == ref_type:
-                row["tm_A"] = tm_score
-            elif "inactive" == ref_type:
-                row["tm_I"] = tm_score
-            elif "of" == ref_type:
-                row["tm_OF"] = tm_score
-            elif "if" == ref_type:
-                row["tm_IF"] = tm_score
-            else:
-                raise ValueError(f"File {reference_file} not recognized")
-        results_df = pd.concat([results_df, pd.DataFrame([row])], ignore_index=True)
+    with progress:
+        task = progress.add_task(protein, total=len(target_files))
+        for target_file in target_files:
+            row = {
+                "protein": protein,
+                "nseq": nseq,
+                "reference_tm": reference_tm,
+                "seed": int(target_file.split("_")[-1].split(".")[0]),
+                "model": int(target_file.split("_")[-3]),
+                "experiment": output_dir.split("/")[-1]
+            }
+            for reference_file in reference_files:
+                tm_score, len_seq1, len_seq2 = __calc_tm_score(
+                    reference_file,
+                    target_file
+                )
+                row["len_seq1"] = len_seq1
+                row["len_seq2"] = len_seq2
+
+                ref_type = reference_file.split("/")[-1].split("_")[0].lower()
+                if "active" == ref_type:
+                    row["tm_A"] = tm_score
+                elif "inactive" == ref_type:
+                    row["tm_I"] = tm_score
+                elif "of" == ref_type:
+                    row["tm_OF"] = tm_score
+                elif "if" == ref_type:
+                    row["tm_IF"] = tm_score
+                else:
+                    raise ValueError(f"File {reference_file} not recognized")
+            results_df = pd.concat([results_df, pd.DataFrame([row])], ignore_index=True)
+        progress.advance(task)
 
     if output_dir is not None:
         if output_dir[-1] != "/":
@@ -584,7 +599,7 @@ def main():
     assert args.guidelines in [True, False]
 
     if args.command == "calc":
-        _ = calc_tm_score_folders(
+        csv_path = calc_tm_score_folders(
             protein=args.protein,
             reference_folder=args.reference_folder,
             target_folder=args.target_folder,
@@ -609,6 +624,7 @@ def main():
             color_on=args.color_on,
             shape_on=args.shape_on
         )
+        console.print(f"  [green]wrote[/] {csv_path}")
     elif args.command == "plot":
         plot_tm_score(
             data_file=args.data_file,
@@ -624,6 +640,7 @@ def main():
             color_on=args.color_on,
             shape_on=args.shape_on
         )
+        console.print("  [green]plot complete[/]")
     elif args.command == "all":
         _ = calc_tm_score_folders(
             protein=args.protein,
@@ -649,6 +666,8 @@ def main():
             color_on=args.color_on,
             shape_on=args.shape_on
         )
+        console.print("  [green]calc + plot complete[/]")
+
 
 if __name__ == "__main__":
     main()
