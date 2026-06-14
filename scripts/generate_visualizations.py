@@ -72,7 +72,7 @@ def load_metadata(base_repo_path: Path) -> dict:
         return json.load(f)
 
 
-def resolve_experiments(result_path: Path, experiment: str | None) -> list[Path]:
+def resolve_experiments(result_path: Path, experiments_requested: list[str] | None) -> list[Path]:
     """Return experiments to render, excluding archive/plot/hidden folders."""
     if not result_path.is_dir():
         raise FileNotFoundError(f"Result path not found: {result_path}")
@@ -85,13 +85,20 @@ def resolve_experiments(result_path: Path, experiment: str | None) -> list[Path]
         and not path.name.startswith(".")
     )
 
-    if experiment is None:
+    if experiments_requested is None:
         return experiments
 
-    exact = [path for path in experiments if path.name == experiment]
-    if exact:
-        return exact
-    return [path for path in experiments if experiment in path.name]
+    resolved: list[Path] = []
+    seen: set[Path] = set()
+    for experiment in experiments_requested:
+        matches = [path for path in experiments if path.name == experiment]
+        if not matches:
+            matches = [path for path in experiments if experiment in path.name]
+        for path in matches:
+            if path not in seen:
+                resolved.append(path)
+                seen.add(path)
+    return resolved
 
 
 def reference_pdb_for_protein(base_repo_path: Path, metadata: dict, protein: str) -> Path:
@@ -105,7 +112,7 @@ def discover_jobs(
     result_path: Path,
     output_path: Path,
     base_repo_path: Path,
-    experiment: str | None,
+    experiments: list[str] | None,
     proteins: list[str],
 ) -> tuple[list[RenderJob], list[str]]:
     """Discover prediction PDBs and their output paths."""
@@ -113,7 +120,7 @@ def discover_jobs(
     jobs: list[RenderJob] = []
     warnings: list[str] = []
 
-    for experiment_dir in resolve_experiments(result_path, experiment):
+    for experiment_dir in resolve_experiments(result_path, experiments):
         for protein in proteins:
             protein_dir = experiment_dir / protein
             if not protein_dir.is_dir():
@@ -184,15 +191,17 @@ def render_visualizations(
                 TextColumn("  {task.description}"),
                 BarColumn(),
                 MofNCompleteColumn(),
-                TextColumn("structures"),
+                TextColumn("proteins"),
                 console=console,
                 transient=True,
             )
 
             with progress:
-                task = progress.add_task("structures", total=len(experiment_jobs))
+                protein_groups = group_by(experiment_jobs, lambda job: job.protein)
+                task = progress.add_task("proteins", total=len(protein_groups))
 
-                for protein, protein_jobs in group_by(experiment_jobs, lambda job: job.protein).items():
+                for protein, protein_jobs in protein_groups.items():
+                    progress.update(task, description=protein)
                     planned_jobs = []
                     for job in protein_jobs:
                         make_png, make_gif = output_plan(job, gif=gif, force=force)
@@ -201,9 +210,9 @@ def render_visualizations(
                         else:
                             stats["skipped"] += 1
                             experiment_stats["skipped"] += 1
-                            progress.advance(task)
 
                     if not planned_jobs:
+                        progress.advance(task)
                         continue
 
                     try:
@@ -217,12 +226,10 @@ def render_visualizations(
                             stats["failed"] += 1
                             experiment_stats["failed"] += 1
                             failures.append(f"{job.experiment}/{job.protein}/{job.pdb_path.name}: {e}")
-                            progress.advance(task)
+                        progress.advance(task)
                         continue
 
                     for job, make_png, make_gif in planned_jobs:
-                        progress.update(task, description=f"{job.protein}/{job.pdb_path.stem}")
-
                         try:
                             renderer.load_structure(
                                 job.pdb_path,
@@ -240,8 +247,8 @@ def render_visualizations(
                             stats["failed"] += 1
                             experiment_stats["failed"] += 1
                             failures.append(f"{job.experiment}/{job.protein}/{job.pdb_path.name}: {e}")
-                        finally:
-                            progress.advance(task)
+
+                    progress.advance(task)
 
             console.print(
                 f"  [green]done[/] {experiment}: "
@@ -257,7 +264,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--result_path", type=Path, required=True)
     parser.add_argument("--output_path", type=Path, required=True)
     parser.add_argument("--base_repo_path", type=Path, default=ROOT)
-    parser.add_argument("--experiment", required=False)
+    parser.add_argument("--experiment", nargs="+", required=False)
     parser.add_argument("--protein", nargs="+", choices=PROTEINS, default=None)
     parser.add_argument("--gif", action="store_true")
     parser.add_argument("--gif-frames", type=int, default=GIF_FRAMES)
@@ -275,7 +282,7 @@ def main() -> None:
     if args.experiment is None:
         console.print("[bold]Generating visualizations for all experiments[/]")
     else:
-        console.print(f"[bold]Generating visualizations for experiment[/] {args.experiment}")
+        console.print(f"[bold]Generating visualizations for experiments[/] {', '.join(args.experiment)}")
     console.print(f"  results: [dim]{result_path}[/]")
     console.print(f"  output:  [dim]{output_path}[/]")
     console.print(f"  mode:    PNG{' + GIF' if args.gif else ''}")
