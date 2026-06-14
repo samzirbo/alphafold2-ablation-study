@@ -129,7 +129,7 @@ def fetch_pdb(pdb_id: str) -> str | None:
 
 
 def kept_positions(info: dict) -> set[int]:
-    """Return the set of 1-indexed UniProt positions kept after truncation."""
+    """Return the 1-indexed UniProt positions present in the prediction input."""
     seq_len = info["sequence_length"]
     positions = set(range(1, seq_len + 1))
     for start, end in info["truncation"]:
@@ -137,25 +137,95 @@ def kept_positions(info: dict) -> set[int]:
     return positions
 
 
-class ChainSelect(Bio.PDB.Select):
-    """PDBIO selector: keeps one chain, optionally filtering by residue number."""
+def dbref_maps(pdb_text: str, chain: str, uniprot_id: str) -> list[tuple[int, int, int, int]]:
+    """
+    Return DBREF mappings from PDB residue IDs to target UniProt positions.
 
-    def __init__(self, chain_id: str, keep_residues: set[int] | None = None):
+    PDB residue numbers are not always the same coordinate system as the input
+    sequence. For example, a PDB construct may number target residues as 98-415,
+    while UniProt positions are 2-319. DBREF records encode that relationship:
+
+        PDB chain residue range -> database accession residue range
+
+    We keep only DBREF rows for the selected chain and the target UniProt ID
+    from metadata. This removes chain segments that belong to ligands, fusion
+    partners, or engineered insertions while preserving the target protein. It
+    also lets metadata truncations, which are written in UniProt coordinates,
+    be applied to references even when the PDB residue numbering is offset.
+    """
+    maps = []
+    for line in pdb_text.splitlines():
+        if not line.startswith("DBREF"):
+            continue
+        parts = line.split()
+        if len(parts) >= 10 and parts[2] == chain and parts[5] == "UNP" and parts[6] == uniprot_id:
+            maps.append(tuple(map(int, (parts[3], parts[4], parts[8], parts[9]))))
+    return maps
+
+
+def mapped_position(residue_id: int, maps: list[tuple[int, int, int, int]]) -> int | None:
+    """
+    Map a PDB residue number to its UniProt position using DBREF ranges.
+
+    Returning None means the residue is outside the target UniProt DBREF ranges,
+    so it should not be part of the cleaned reference chain.
+    """
+    for pdb_start, pdb_end, uniprot_start, uniprot_end in maps:
+        if pdb_start <= residue_id <= pdb_end:
+            step = 1 if uniprot_end >= uniprot_start else -1
+            return uniprot_start + step * (residue_id - pdb_start)
+    return None
+
+
+class ReferenceSelect(Bio.PDB.Select):
+    """
+    PDBIO selector for TM-score-ready reference chains.
+
+    The prediction FASTA is already truncated according to metadata, so the
+    reference chain must be trimmed to the same input positions before scoring.
+    When target UniProt DBREF records are available, residue filtering happens
+    in UniProt coordinates. That removes non-target chain segments such as CCR5
+    ligand/fusion residues and makes PDB numbering offsets harmless. When no
+    target DBREF exists, we fall back to raw PDB residue IDs
+    """
+
+    def __init__(
+            self,
+            chain_id: str,
+            keep_positions: set[int],
+            maps: list[tuple[int, int, int, int]]
+    ):
         self.chain_id = chain_id
-        self.keep_residues = keep_residues
+        self.keep_positions = keep_positions
+        self.maps = maps
 
     def accept_chain(self, chain):
         return chain.id == self.chain_id
 
     def accept_residue(self, residue):
-        if self.keep_residues is None:
-            return True
-        resnum = residue.id[1]
-        return resnum in self.keep_residues
+        # Drop HETATM residues such as ligands, waters, and fusion cofactors.
+        # TM-score uses protein C-alpha traces, so keeping only standard ATOM
+        # residues prevents non-protein records from entering the reference.
+        if residue.id[0] != " ":
+            return False
+
+        residue_id = residue.id[1]
+        if self.maps:
+            # Convert from the PDB author's residue numbering to UniProt
+            # numbering before checking metadata truncations. This is what
+            # handles offset constructs such as CCR5 active 7F1Q_R.
+            position = mapped_position(residue_id, self.maps)
+            if position is None:
+                return False
+        else:
+            # Fallback for references without a target UniProt DBREF\
+            position = residue_id
+
+        return position in self.keep_positions
 
 
-def extract_chain(pdb_text: str, chain: str, keep_residues: set[int] | None = None) -> str:
-    """Extract a single chain from PDB text, optionally trimming by residue numbers."""
+def extract_chain(pdb_text: str, chain: str, info: dict) -> str:
+    """Extract one cleaned reference chain with Bio.PDB's parser and selector."""
     parser = Bio.PDB.PDBParser(QUIET=True)
     structure = parser.get_structure("ref", io.StringIO(pdb_text))
 
@@ -165,12 +235,16 @@ def extract_chain(pdb_text: str, chain: str, keep_residues: set[int] | None = No
             f"chain {chain} not found; available chains: {sorted(available_chains)}"
         )
 
+    keep = kept_positions(info)
+    maps = dbref_maps(pdb_text, chain, info["uniprot_id"])
+
     out = io.StringIO()
     pdb_io = Bio.PDB.PDBIO()
     pdb_io.set_structure(structure)
-    pdb_io.save(out, select=ChainSelect(chain, keep_residues))
+    pdb_io.save(out, select=ReferenceSelect(chain, keep, maps))
+    chain_data = "\n".join(line.rstrip() for line in out.getvalue().splitlines()) + "\n"
 
-    return out.getvalue()
+    return chain_data
 
 
 def download_structures(metadata: dict) -> None:
@@ -178,8 +252,6 @@ def download_structures(metadata: dict) -> None:
     for name, info in metadata.items():
         references_dir = DATA_DIR / name / "references"
         references_dir.mkdir(parents=True, exist_ok=True)
-
-        keep = kept_positions(info)
 
         for conf in info["conformations"].values():
             label = conf["label"]
@@ -198,7 +270,7 @@ def download_structures(metadata: dict) -> None:
                 raise RuntimeError(f"Failed to download PDB {pdb_id} for {name}/{label}")
 
             try:
-                chain_data = extract_chain(pdb_data, chain, keep_residues=keep)
+                chain_data = extract_chain(pdb_data, chain, info)
             except ValueError as exc:
                 console.print(f"  [red bold]FAILED[/]    {name}/{label}: {exc}")
                 raise
@@ -206,7 +278,7 @@ def download_structures(metadata: dict) -> None:
             raw_path.write_text(pdb_data)
             chain_path.write_text(chain_data)
 
-            console.print(f"  [green]ok[/]        {name}/{label} — {pdb_id} chain {chain} (trimmed to {len(keep)} positions)")
+            console.print(f"  [green]ok[/]        {name}/{label} — {pdb_id} chain {chain}")
 
     console.print("  [green]done[/]")
 
