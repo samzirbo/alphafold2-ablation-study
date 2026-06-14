@@ -33,6 +33,14 @@ def autoplot_tmscore(
         base_repo_path,
         limit_axis=True,
         experiment_folder_name=None,
+        axis_bounds=None,
+        plot_guidelines=True,
+        font_size=8,
+        opacity=1,
+        model=None,
+        seed=None,
+        color_on="nseq",
+        shape_on=None,
         rerun="missing"
 ):
     if rerun not in rerun_choices:
@@ -53,7 +61,7 @@ def autoplot_tmscore(
             if os.path.isdir(subdir) and os.path.basename(subdir) not in directories_to_exclude:
                 filtered_subdirectories.append(subdir)
         else:
-            if os.path.isdir(subdir) and experiment_folder_name in subdir:
+            if os.path.isdir(subdir) and experiment_folder_name == os.path.basename(subdir):
                 filtered_subdirectories.append(subdir)
                 break
     if not filtered_subdirectories:
@@ -62,6 +70,7 @@ def autoplot_tmscore(
 
     plots_dir = os.path.join(result_path, "plots/TM_Score")
     os.makedirs(plots_dir, exist_ok=True)
+    print("Saving results in ", plots_dir)
 
     jobs = []
     for start_path in filtered_subdirectories:
@@ -144,6 +153,8 @@ def autoplot_tmscore(
                                     base_repo_path + "/data/metadata.json",
                                     protein_name + ".csv",
                                     experiment_result_dir,
+                                    model,
+                                    seed
                                 )
                             finally:
                                 plot_tmscore.console = previous_console
@@ -153,12 +164,18 @@ def autoplot_tmscore(
                     if make_plot:
                         plot_tmscore.plot_tm_score(
                             experiment_result_dir + "/" + protein_name + ".csv",
-                            protein=protein_name,
                             save_file_name=protein_name + ".png",
+                            protein=protein_name,
                             limit_axis=limit_axis,
                             output_dir=experiment_result_dir,
-                            experiment_name=experiment_name
-                        )
+                            experiment_name=experiment_name,
+                            axis_bounds=axis_bounds,
+                            plot_guidelines=plot_guidelines,
+                            font_size=font_size,
+                            opacity=opacity,
+                            color_on=color_on,
+                            shape_on=shape_on,
+                            )
                         stats["plots"] += 1
                         experiment_stats["plots"] += 1
                 except Exception as e:
@@ -194,7 +211,21 @@ if __name__ == "__main__":
     parser.add_argument("--experiment_folder_name", required=False)
     parser.add_argument(
         "--limit_axis",
-        action=argparse.BooleanOptionalAction,
+        type=lambda x: x.lower() == "true",
+        default=True
+    )
+    parser.add_argument(
+        "--axis_bounds",
+        nargs=4,
+        type=float,
+        metavar=("L_X", "H_X", "L_Y", "H_Y"),
+        help="axis limits as l_x h_x l_y h_y",
+        default=None
+    )
+    parser.add_argument("--font_size", type=int, default=8)
+    parser.add_argument(
+        "--guidelines",
+        type=lambda x: x.lower() == "true",
         default=True
     )
     parser.add_argument(
@@ -203,6 +234,11 @@ if __name__ == "__main__":
         default="missing",
         help="Regenerate missing outputs only, plots only, CSVs only, or CSVs and plots."
     )
+    parser.add_argument("--opacity", type=float, default=1)
+    parser.add_argument("--model", type=str, default=None)
+    parser.add_argument("--seed", type=str, default=None)
+    parser.add_argument("--color_on", type=str)
+    parser.add_argument("--shape_on", type=str, default=None)
 
     args = parser.parse_args()
 
@@ -211,5 +247,13 @@ if __name__ == "__main__":
         args.base_repo_path,
         args.limit_axis,
         args.experiment_folder_name,
-        args.rerun
+        args.rerun,
+        args.axis_bounds,
+        args.guidelines,
+        args.font_size,
+        args.opacity,
+        args.model,
+        args.seed,
+        args.color_on,
+        args.shape_on
     )
