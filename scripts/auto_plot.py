@@ -243,17 +243,17 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     autoplot_tmscore(
-        args.result_path,
-        args.base_repo_path,
-        args.limit_axis,
-        args.experiment_folder_name,
-        args.rerun,
-        args.axis_bounds,
-        args.guidelines,
-        args.font_size,
-        args.opacity,
-        args.model,
-        args.seed,
-        args.color_on,
-        args.shape_on
+        result_path=args.result_path,
+        base_repo_path=args.base_repo_path,
+        limit_axis=args.limit_axis,
+        experiment_folder_name=args.experiment_folder_name,
+        axis_bounds=args.axis_bounds,
+        plot_guidelines=args.guidelines,
+        font_size=args.font_size,
+        opacity=args.opacity,
+        model=args.model,
+        seed=args.seed,
+        color_on=args.color_on,
+        shape_on=args.shape_on,
+        rerun=args.rerun
     )
