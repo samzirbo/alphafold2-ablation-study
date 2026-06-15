@@ -55,15 +55,18 @@ dependencies = [
     { name = "absl-py" },
     { name = "biopython" },
     { name = "colabfold", extra = ["alphafold-minus-jax"] },
+    { name = "imageio" },
     { name = "ipykernel" },
     { name = "jax" },
     { name = "jax", extra = ["cuda12"], marker = "sys_platform == 'linux'" },
     { name = "matplotlib" },
     { name = "numpy" },
     { name = "pandas" },
+    { name = "pillow" },
     { name = "prody" },
     { name = "py3dmol" },
     { name = "pydrive2" },
+    { name = "pymol-open-source" },
     { name = "requests" },
     { name = "rich" },
     { name = "scikit-learn" },
@@ -84,15 +87,18 @@ requires-dist = [
     { name = "absl-py", specifier = ">=1.4.0,<2.0.0" },
     { name = "biopython", specifier = ">=1.84,<1.86" },
     { name = "colabfold", extras = ["alphafold-minus-jax"], git = "https://github.com/sokrypton/ColabFold" },
+    { name = "imageio", specifier = ">=2.37.0" },
     { name = "ipykernel", specifier = ">=7.2.0" },
     { name = "jax", marker = "sys_platform != 'linux'", specifier = ">=0.4.26,<0.5" },
     { name = "jax", extras = ["cuda12"], marker = "sys_platform == 'linux'", specifier = ">=0.4.26,<0.5" },
     { name = "matplotlib", specifier = ">=3.8.4" },
     { name = "numpy", specifier = ">=2.0.2" },
     { name = "pandas", specifier = ">=2.2.2" },
+    { name = "pillow", specifier = ">=11.0.0" },
     { name = "prody", specifier = ">=2.6.1" },
     { name = "py3dmol", specifier = ">=2.0.1" },
     { name = "pydrive2", specifier = ">=1.21.1" },
+    { name = "pymol-open-source", specifier = ">=3.0.0" },
     { name = "requests", specifier = ">=2.26.0" },
     { name = "rich", specifier = ">=13.0.0" },
     { name = "scikit-learn", specifier = ">=1.8.0" },
@@ -975,6 +981,19 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/ce/cc/762dfb036166873f0059f3b7de4565e1b5bc3d6f28a414c13da27e442f99/idna-3.13.tar.gz", hash = "sha256:585ea8fe5d69b9181ec1afba340451fba6ba764af97026f92a91d4eef164a242", size = 194210, upload-time = "2026-04-22T16:42:42.314Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/5d/13/ad7d7ca3808a898b4612b6fe93cde56b53f3034dcde235acb1f0e1df24c6/idna-3.13-py3-none-any.whl", hash = "sha256:892ea0cde124a99ce773decba204c5552b69c3c67ffd5f232eb7696135bc8bb3", size = 68629, upload-time = "2026-04-22T16:42:40.909Z" },
+]
+
+[[package]]
+name = "imageio"
+version = "2.37.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+    { name = "pillow" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/b1/84/93bcd1300216ea50811cee96873b84a1bebf8d0489ffaf7f2a3756bab866/imageio-2.37.3.tar.gz", hash = "sha256:bbb37efbfc4c400fcd534b367b91fcd66d5da639aaa138034431a1c5e0a41451", size = 389673, upload-time = "2026-03-09T11:31:12.573Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/49/fa/391e437a34e55095173dca5f24070d89cbc233ff85bf1c29c93248c6588d/imageio-2.37.3-py3-none-any.whl", hash = "sha256:46f5bb8522cd421c0f5ae104d8268f569d856b29eb1a13b92829d1970f32c9f0", size = 317646, upload-time = "2026-03-09T11:31:10.771Z" },
 ]
 
 [[package]]
@@ -2565,6 +2584,24 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/c3/b2/bc9c9196916376152d655522fdcebac55e66de6603a76a02bca1b6414f6c/pygments-2.20.0.tar.gz", hash = "sha256:6757cd03768053ff99f3039c1a36d6c0aa0b263438fcab17520b30a303a82b5f", size = 4955991, upload-time = "2026-03-29T13:29:33.898Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/f4/7e/a72dd26f3b0f4f2bf1dd8923c85f7ceb43172af56d63c7383eb62b332364/pygments-2.20.0-py3-none-any.whl", hash = "sha256:81a9e26dd42fd28a23a2d169d86d7ac03b46e2f8b59ed4698fb4785f946d0176", size = 1231151, upload-time = "2026-03-29T13:29:30.038Z" },
+]
+
+[[package]]
+name = "pymol-open-source"
+version = "3.2.0a0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/98/bc/de878d01a4658d7c7ca986eb2114de2744bcbb0c9452ab554420fcd49877/pymol_open_source-3.2.0a0-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:8246536c971c6d6ed426b6b39ce248d5df3635f7954e13044c0ce2743be7d89a", size = 7359871, upload-time = "2025-09-09T00:51:07.943Z" },
+    { url = "https://files.pythonhosted.org/packages/c8/8d/718ab51af1b5a8500f2daa3aac353d1da324cb861f58cb8f7707b7517b3f/pymol_open_source-3.2.0a0-cp312-cp312-macosx_12_0_x86_64.whl", hash = "sha256:f7b0e58d5728abfd10c4abf7db88da6dee80a3929b051a3b5eececc717c258b5", size = 7628150, upload-time = "2025-08-04T14:39:56.976Z" },
+    { url = "https://files.pythonhosted.org/packages/04/df/82cb271593ce617a6355d330c31500a2f747eca4fadd0e5466ff3a69ae69/pymol_open_source-3.2.0a0-cp312-cp312-manylinux_2_35_x86_64.whl", hash = "sha256:6702a33ca3f23197d1ab026ecbdcc218472c9fcfe92782fdb146efcfc1c82601", size = 31358340, upload-time = "2025-08-04T14:39:59.009Z" },
+    { url = "https://files.pythonhosted.org/packages/c5/75/8f07919b9a6e2d374711e33877395f371aafe8d283691969084f54f312fd/pymol_open_source-3.2.0a0-cp312-cp312-win_amd64.whl", hash = "sha256:b3d286c61efe65a8ee6c9974cc2aaeffc7250da3d2616f4cc91bcc824fa05a2a", size = 7279550, upload-time = "2025-08-04T14:40:02.12Z" },
+    { url = "https://files.pythonhosted.org/packages/bc/74/536c009dd4a4b054f9485e8f7e3d4b70b143000ed2e3f15d4960f96151c8/pymol_open_source-3.2.0a0-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:f87fd8d0ab9bf15c3c6a63c4e0cdd3b73142d1ac775a1e38cd82f926a07b4465", size = 7359861, upload-time = "2025-09-09T00:51:09.575Z" },
+    { url = "https://files.pythonhosted.org/packages/ee/54/491e3b78883647f5c97439d65b52e21c705f68d5fc88613f5f1c90c723d9/pymol_open_source-3.2.0a0-cp313-cp313-macosx_12_0_x86_64.whl", hash = "sha256:6dcd27f0cba0a3557de4672f7d01ecb75f603ebf788180fc34f54c062d8c8616", size = 7628177, upload-time = "2025-08-04T14:40:03.722Z" },
+    { url = "https://files.pythonhosted.org/packages/d9/58/d81900193b22758314a74190cf4ea313c055b759e8a66013f4e8bec24622/pymol_open_source-3.2.0a0-cp313-cp313-manylinux_2_35_x86_64.whl", hash = "sha256:7fab3a1d46be170b98e93680a006758a569196eca7d7c920fe9e096b27f4566e", size = 31358095, upload-time = "2025-08-04T14:40:05.609Z" },
+    { url = "https://files.pythonhosted.org/packages/59/7c/f6fffe36af45cfef497590ef4d8ab3335e83dc9a8cd289b9c7b39482c6be/pymol_open_source-3.2.0a0-cp313-cp313-win_amd64.whl", hash = "sha256:e080477c2381590f635ce90a29b82ce3be0d4e4cbad83bd66123313c7c7f608d", size = 7279595, upload-time = "2025-08-04T14:40:08.03Z" },
 ]
 
 [[package]]
