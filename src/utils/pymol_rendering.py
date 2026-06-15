@@ -168,6 +168,7 @@ class PymolRenderer:
             view_selection = "reference"
 
         self.cmd.hide("everything", "all")
+        self.cmd.dss("structure")
         self.cmd.show("cartoon", "structure")
         self._apply_render_settings()
         self._apply_residue_gradient("structure", self.sequence_id_names)
