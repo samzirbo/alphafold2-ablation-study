@@ -68,7 +68,7 @@ def autoplot_tmscore(
         console.print(f"  [yellow]warning[/] No experiments found in {result_path}")
         return
 
-    plots_dir = os.path.join(result_path, "plots/TM_Score")
+    plots_dir = os.path.join(result_path, "plots", "TM_Score")
     os.makedirs(plots_dir, exist_ok=True)
     print("Saving results in ", plots_dir)
 
@@ -82,7 +82,7 @@ def autoplot_tmscore(
                         full_path = os.path.join(root, d)
                         if full_path not in found:
                             found.append(full_path)
-                            experiment_name = full_path.split("/")[-2]
+                            experiment_name = os.path.basename(os.path.dirname(full_path))
                             jobs.append((experiment_name, protein_name, full_path))
 
     if not jobs:
@@ -122,9 +122,9 @@ def autoplot_tmscore(
             for _, protein_name, full_path in experiment_jobs:
                 progress.update(task, description=protein_name)
 
-                experiment_result_dir = plots_dir + "/" + experiment_name
-                csv_path = experiment_result_dir + "/" + protein_name + ".csv"
-                png_path = experiment_result_dir + "/" + protein_name + ".png"
+                experiment_result_dir = os.path.join(plots_dir, experiment_name)
+                csv_path = os.path.join(experiment_result_dir, f"{protein_name}.csv")
+                png_path = os.path.join(experiment_result_dir, f"{protein_name}.png")
                 make_csv = rerun in {"csv", "all"} or not os.path.exists(csv_path)
                 make_plot = rerun in {"plots", "all"} or not os.path.exists(png_path)
 
@@ -148,10 +148,10 @@ def autoplot_tmscore(
                                 )
                                 plot_tmscore.calc_tm_score_folders(
                                     protein_name,
-                                    base_repo_path + "/data/" + protein_name + "/references/",
+                                    os.path.join(base_repo_path, "data", protein_name, "references"),
                                     full_path,
-                                    base_repo_path + "/data/metadata.json",
-                                    protein_name + ".csv",
+                                    os.path.join(base_repo_path, "data", "metadata.json"),
+                                    f"{protein_name}.csv",
                                     experiment_result_dir,
                                     model,
                                     seed
@@ -163,8 +163,8 @@ def autoplot_tmscore(
 
                     if make_plot:
                         plot_tmscore.plot_tm_score(
-                            experiment_result_dir + "/" + protein_name + ".csv",
-                            save_file_name=protein_name + ".png",
+                            os.path.join(experiment_result_dir, f"{protein_name}.csv"),
+                            save_file_name=f"{protein_name}.png",
                             protein=protein_name,
                             limit_axis=limit_axis,
                             output_dir=experiment_result_dir,
