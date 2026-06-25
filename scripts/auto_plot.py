@@ -294,6 +294,8 @@ def autoplot_pca(
                 progress.update(task, description=protein_name)
 
                 experiment_result_dir = plots_dir + "/" + experiment_name
+
+                os.makedirs(experiment_result_dir, exist_ok=True)
                 make_plot = rerun in {"plots", "all"} or not any(
                     file_name_prefix + protein_name in fname
                     for fname in os.listdir(experiment_result_dir)
