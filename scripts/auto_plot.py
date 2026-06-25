@@ -125,7 +125,7 @@ def autoplot_tmscore(
 
                 experiment_result_dir = plots_dir + "/" + experiment_name
                 csv_path = experiment_result_dir + "/" + protein_name + ".csv"
-                png_path = experiment_result_dir + "/" + protein_name + ".png"
+                png_path = experiment_result_dir + "/" + file_name_prefix + protein_name + ".png"
                 make_csv = rerun in {"csv", "all"} or not os.path.exists(csv_path)
                 make_plot = rerun in {"plots", "all"} or not os.path.exists(png_path)
 
