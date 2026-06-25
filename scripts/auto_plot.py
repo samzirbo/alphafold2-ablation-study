@@ -41,7 +41,8 @@ def autoplot_tmscore(
         seed=None,
         color_on="nseq",
         shape_on=None,
-        rerun="missing"
+        rerun="missing",
+        file_name_prefix = ""
 ):
     if rerun not in rerun_choices:
         raise ValueError(f"rerun must be one of {rerun_choices}, got {rerun!r}")
@@ -164,7 +165,7 @@ def autoplot_tmscore(
                     if make_plot:
                         plot_tmscore.plot_tm_score(
                             experiment_result_dir + "/" + protein_name + ".csv",
-                            save_file_name=protein_name + ".png",
+                            save_file_name=file_name_prefix + protein_name + ".png",
                             protein=protein_name,
                             limit_axis=limit_axis,
                             output_dir=experiment_result_dir,
@@ -239,6 +240,7 @@ if __name__ == "__main__":
     parser.add_argument("--seed", type=str, default=None)
     parser.add_argument("--color_on", type=str)
     parser.add_argument("--shape_on", type=str, default=None)
+    parser.add_argument("--file_name_prefix", type=str, default=None)
 
     args = parser.parse_args()
 
@@ -255,5 +257,6 @@ if __name__ == "__main__":
         seed=args.seed,
         color_on=args.color_on,
         shape_on=args.shape_on,
-        rerun=args.rerun
+        rerun=args.rerun,
+        file_name_prefix=args.file_name_prefix
     )
