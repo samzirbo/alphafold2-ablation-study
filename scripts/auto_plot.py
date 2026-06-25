@@ -377,7 +377,7 @@ if __name__ == "__main__":
     parser.add_argument("--seed", type=str, default=None)
     parser.add_argument("--color_on", type=str)
     parser.add_argument("--shape_on", type=str, default=None)
-    parser.add_argument("--file_name_prefix", type=str, default=None)
+    parser.add_argument("--file_name_prefix", type=str, default="")
     parser.add_argument("--plot_type", type=str, default="tm")
 
     args = parser.parse_args()
