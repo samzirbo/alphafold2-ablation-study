@@ -4,6 +4,7 @@ import re
 import pandas as pd
 import numpy as np
 from datetime import datetime
+import traceback
 
 
 def parse_ablation_details(experiment_name, nseq):
@@ -16,9 +17,10 @@ def parse_ablation_details(experiment_name, nseq):
     
     # 1. CATCH THE BASELINE / CONTROL FOLDER
     # Adjust these strings if your baseline directory is named differently
-    if exp_str.lower() in ["base_case", "control", "baseline", "nan", "depth_5120"]:
+
+    if exp_str.lower() in ["base_case", "control", "baseline", "nan", "depth_5120", "no experiment type"]:
         # We default it to the primary experiment type we are analyzing
-        return "Query Mask", 0
+        return "Baseline", 0
 
     # 2. PARSE THE ABLATION LEVEL FROM FOLDER NAME (e.g., 'query_masking_15' -> 15)
     name_clean = exp_str.replace("_", " ").title()
@@ -38,21 +40,22 @@ def parse_ablation_details(experiment_name, nseq):
     if "Depth" in name_clean or nseq != 5120:
         return "MSA Depth Reduction", int(nseq)
         
-    return "Query Mask", 0
+    return "NaN", 0
 
 
 def process_evaluations(data_files: list[str]) -> pd.DataFrame:
     dfs = []
     for f in data_files:
-        try:
-            df = pd.read_csv(f)
-            if not df.empty:
-                dfs.append(df)
-        except Exception:
-            continue
-            
-    if not dfs:
-        raise ValueError("No valid or non-empty CSV files found.")
+
+        df = pd.read_csv(f)
+
+        subfolder_name = Path(f).parent.name
+        # Example: If 'expermint is missing (older plotter didnt include it), fall back to 
+        # the subfolder nam e
+        if "experiment" not in df.columns or df["experiment"].dropna().empty:
+                df["experiment"] = subfolder_name
+        dfs.append(df)
+
         
     df = pd.concat(dfs, ignore_index=True)
     
@@ -103,40 +106,39 @@ def generate_markdown_reports(stats, labels, output_path=None):
     report_str = []
     
     report_str.append("# Automated Ablation Experiment Evaluation Report\n")
+
+
+# Create a unified copy and sort strictly by Protein first
+    unified_report = stats.sort_values(by=["protein", "exp_type", "ablation_val"]).copy()
     
-    # REPORT 1: Hierarchical View
-    report_str.append("## Overview 1: All Summary Statistics")
-    report1 = stats.sort_values(by=["exp_type", "ablation_val", "protein"]).copy()
-    report1.columns = [
+    # Arrange and rename columns into a single, cohesive master table
+    unified_report.columns = [
         "Experiment Type", "Ablation Level", "Protein",
         f"Min {s1_lbl}", f"Max {s1_lbl}", f"Mean {s1_lbl}",
         f"Min {s2_lbl}", f"Max {s2_lbl}", f"Mean {s2_lbl}",
         f"Δ Base {s1_lbl}", f"Δ Base {s2_lbl}"
     ]
-    report_str.append(report1.to_markdown(index=False, floatfmt=".3f"))
-    report_str.append("\n" + "---" * 20 + "\n")
     
-    # REPORT 2: Protein Trajectory View
-    report_str.append("## Overview 2: Trajectory Profiles Grouped by Protein")
-    report2 = stats.sort_values(by=["exp_type", "protein", "ablation_val"]).copy()
-    report2 = report2[[
-        "exp_type", "protein", "ablation_val",
-        "s1_max", "s1_delta", "s2_max", "s2_delta"
-    ]]
-    report2.columns = [
-        "Experiment Type", "Protein", "Ablation Level",
-        f"Max {s1_lbl}", f"Δ Base {s1_lbl}",
-        f"Max {s2_lbl}", f"Δ Base {s2_lbl}"
+    # Reorder columns to put 'Protein' upfront as the primary anchor
+    column_order = [
+        "Protein", "Experiment Type", "Ablation Level",
+        f"Min {s1_lbl}", f"Max {s1_lbl}", f"Mean {s1_lbl}", f"Δ Base {s1_lbl}",
+        f"Min {s2_lbl}", f"Max {s2_lbl}", f"Mean {s2_lbl}", f"Δ Base {s2_lbl}"
     ]
-    report_str.append(report2.to_markdown(index=False, floatfmt=".3f"))
+    unified_report = unified_report[column_order]
+    
+    # Convert to markdown layout
+    report_str.append(unified_report.to_markdown(index=False, floatfmt=".3f"))
     
     final_output = "\n".join(report_str)
     
     if output_path:
         Path(output_path).write_text(final_output)
-        print(f"[Success] Report saved to: {output_path}")
+        print(f"[Success] Unified report saved to: {output_path}")
     else:
         print(final_output)
+
+  
 
 
 def main():
@@ -170,11 +172,10 @@ Output Report Columns Dictionary:
     )
     
     parser.add_argument(
-        "-i", "--data_files", 
-        nargs="+", 
+        "-i", "--data_dir", 
         type=str, 
         required=True,
-        help="Path to evaluation CSV files."
+        help="Path to the directory containing evaluation CSV files."
     )
     
     parser.add_argument(
@@ -187,10 +188,29 @@ Output Report Columns Dictionary:
     args = parser.parse_args()
     
     try:
-        stats_df, labels = process_evaluations(args.data_files)
+        
+        input_path = Path(args.data_dir)
+        csv_files = [str(p) for p in input_path.rglob("*.csv")]
+
+        if not csv_files:
+            raise FileNotFoundError(f"No CSV files found in directory: {args.data_dir}")
+
+        #print(csv_files)
+
+        stats_df, labels = process_evaluations(csv_files)
+
+        
         generate_markdown_reports(stats_df, labels, args.output_md)
     except Exception as e:
-        print(f"[Error] Failed to process evaluations: {e}")
+        # Verbose Error Block
+        print("\n" + "="*60)
+        print(f"[CRITICAL ERROR] Failed to complete ablation evaluation execution.")
+        print(f"Error Type:    {type(e).__name__}")
+        print(f"Error Summary: {e}")
+        print("="*60)
+        print("Detailed Execution Traceback:")
+        traceback.print_exc()  # Prints the full stack trace directly to stderr
+        print("="*60 + "\n")
 
 if __name__ == "__main__":
     main()
