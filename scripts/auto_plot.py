@@ -294,8 +294,10 @@ def autoplot_pca(
                 progress.update(task, description=protein_name)
 
                 experiment_result_dir = plots_dir + "/" + experiment_name
-                png_path = experiment_result_dir + "/" + file_name_prefix + protein_name + ".png"
-                make_plot = rerun in {"plots", "all"} or not os.path.exists(png_path)
+                make_plot = rerun in {"plots", "all"} or not any(
+                    file_name_prefix + protein_name in fname
+                    for fname in os.listdir(experiment_result_dir)
+                )
 
                 if not make_plot:
                     stats["skipped"] += 1
@@ -310,7 +312,7 @@ def autoplot_pca(
                         reference_folder=base_repo_path + "/data/" + protein_name + "/references/",
                         target_folder=full_path,
                         metadata_file=base_repo_path + "/data/metadata.json",
-                        output_file_name=file_name_prefix + protein_name + ".png",
+                        output_file_name=file_name_prefix + protein_name,
                         output_dir=experiment_result_dir,
                         experiment_name=experiment_name,
                         font_size=font_size

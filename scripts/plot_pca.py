@@ -186,10 +186,7 @@ def plot_pca(
 
             ax.tick_params(axis="both", labelsize=font_size)
 
-            if output_file_name:
-                output_path = Path(output_dir) / f"{output_file_name}_ref_{reference_file.split('/')[-1]}.png"
-            else:
-                output_path = Path(output_dir) / f"{reference_file.split('/')[-1]}.png"
+            output_path = Path(output_dir) / f"{output_file_name}_ref_{reference_file.split('/')[-1]}.png"
 
             fig.savefig(
                 output_path,
