@@ -586,15 +586,38 @@ def main(argv: list[str] | None = None) -> None:
                                 _safe_copy(a3m, protein_result_dir / a3m.name)
                             config = tmp_path / "config.json"
                             if config.exists():
-                                if args.query_sequence is not None:
-                                    try:
-                                        with open(config, "r") as f:
-                                            cfg_data = json.load(f)
-                                        cfg_data["query_sequence"] = args.query_sequence
-                                        with open(config, "w") as f:
-                                            json.dump(cfg_data, f, indent=4)
-                                    except Exception as e:
-                                        console.print(f"  [yellow]warning[/] failed to update config.json with query_sequence: {e}")
+                                try:
+                                    with open(config, "r") as f:
+                                        cfg_data = json.load(f)
+                                    
+                                    # Save all standard CLI arguments
+                                    for k, v in vars(args).items():
+                                        if k == "ablation":
+                                            continue
+                                        if k not in cfg_data:
+                                            val_to_save = v
+                                            if isinstance(v, Path):
+                                                val_to_save = str(v)
+                                            elif isinstance(v, list):
+                                                val_to_save = [str(i) if isinstance(i, Path) else i for i in v]
+                                            cfg_data[k] = val_to_save
+                                    
+                                    # Save ablation arguments (including defaults)
+                                    for name, kwargs in ablations:
+                                        schema = ABLATIONS[name]["params"]
+                                        for param_name, (_, default) in schema.items():
+                                            val = kwargs.get(param_name, default)
+                                            # Map 'frac' to 'fraction' per user request
+                                            key_name = f"{name}_{param_name}"
+                                            if param_name == "frac":
+                                                key_name = f"{name}_fraction"
+                                            if key_name not in cfg_data:
+                                                cfg_data[key_name] = val
+
+                                    with open(config, "w") as f:
+                                        json.dump(cfg_data, f, indent=4)
+                                except Exception as e:
+                                    console.print(f"  [yellow]warning[/] failed to update config.json with custom arguments: {e}")
                                 _safe_copy(config, protein_result_dir / config.name)
                             msa_saved = True
 
