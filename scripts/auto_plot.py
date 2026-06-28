@@ -2,12 +2,9 @@ import os
 import glob
 import argparse
 
-from rich.console import Console
-from rich.progress import BarColumn, MofNCompleteColumn, Progress, SpinnerColumn, TextColumn
+from datetime import datetime
 
 import plot_tmscore
-
-console = Console(highlight=False)
 
 directories_to_exclude = ["archive", "plots"]
 rerun_choices = ("missing", "plots", "csv", "all")
@@ -47,11 +44,11 @@ def autoplot_tmscore(
         raise ValueError(f"rerun must be one of {rerun_choices}, got {rerun!r}")
 
     if experiment_folder_name is None:
-        console.print("[bold]Plotting all subfolders[/]")
+        print("Plotting all subfolders")
     else:
-        console.print(f"[bold]Plotting only experiment[/] {experiment_folder_name}")
-    console.print(f"  results: [dim]{result_path}[/]")
-    console.print(f"  rerun:   [cyan]{rerun}[/]")
+        print(f"Plotting only experiment {experiment_folder_name}")
+    print(f"  results: {result_path}")
+    print(f"  rerun:   {rerun}")
 
     all_subdirectories = glob.glob(os.path.join(result_path, '*'))
 
@@ -65,7 +62,7 @@ def autoplot_tmscore(
                 filtered_subdirectories.append(subdir)
                 break
     if not filtered_subdirectories:
-        console.print(f"  [yellow]warning[/] No experiments found in {result_path}")
+        print(f"  warning No experiments found in {result_path}")
         return
 
     plots_dir = os.path.join(result_path, "plots", "TM_Score")
@@ -86,7 +83,7 @@ def autoplot_tmscore(
                             jobs.append((experiment_name, protein_name, full_path))
 
     if not jobs:
-        console.print("  [yellow]warning[/] No protein prediction folders found.")
+        print("  warning No protein prediction folders found.")
         return
 
     stats = {"csv": 0, "plots": 0, "skipped": 0, "failed": 0}
@@ -101,106 +98,82 @@ def autoplot_tmscore(
         experiment_jobs = [job for job in jobs if job[0] == experiment_name]
         experiment_stats = {"csv": 0, "plots": 0, "skipped": 0, "failed": 0}
 
-        console.print(
-            f"\n[bold cyan]Experiment {experiment_numbers[experiment_name]}/{len(experiments)}:[/] "
+        print(
+            f"\n[{datetime.now().strftime('%H:%M:%S')}] Experiment {experiment_numbers[experiment_name]}/{len(experiments)}: "
             f"{experiment_name}"
         )
 
-        progress = Progress(
-            SpinnerColumn(),
-            TextColumn("  {task.description}"),
-            BarColumn(),
-            MofNCompleteColumn(),
-            TextColumn("proteins"),
-            console=console,
-            transient=True,
-        )
+        for _, protein_name, full_path in experiment_jobs:
+            print(f"[{datetime.now().strftime('%H:%M:%S')}]   Processing protein {protein_name}...", flush=True)
 
-        with progress:
-            task = progress.add_task("proteins", total=len(experiment_jobs))
+            experiment_result_dir = os.path.join(plots_dir, experiment_name)
+            csv_path = os.path.join(experiment_result_dir, f"{protein_name}.csv")
+            png_path = os.path.join(experiment_result_dir, f"{protein_name}.png")
+            make_csv = rerun in {"csv", "all"} or not os.path.exists(csv_path)
+            make_plot = rerun in {"plots", "all"} or not os.path.exists(png_path)
 
-            for _, protein_name, full_path in experiment_jobs:
-                progress.update(task, description=protein_name)
+            if not make_csv and not make_plot:
+                stats["skipped"] += 1
+                experiment_stats["skipped"] += 1
+                print(f"[{datetime.now().strftime('%H:%M:%S')}]   Skipped {protein_name} (already exists)")
+                continue
 
-                experiment_result_dir = os.path.join(plots_dir, experiment_name)
-                csv_path = os.path.join(experiment_result_dir, f"{protein_name}.csv")
-                png_path = os.path.join(experiment_result_dir, f"{protein_name}.png")
-                make_csv = rerun in {"csv", "all"} or not os.path.exists(csv_path)
-                make_plot = rerun in {"plots", "all"} or not os.path.exists(png_path)
+            try:
+                os.makedirs(experiment_result_dir, exist_ok=True)
 
-                if not make_csv and not make_plot:
-                    stats["skipped"] += 1
-                    experiment_stats["skipped"] += 1
-                    progress.advance(task)
-                    continue
+                if make_csv:
+                    plot_tmscore.calc_tm_score_folders(
+                        protein_name,
+                        os.path.join(base_repo_path, "data", protein_name, "references"),
+                        full_path,
+                        os.path.join(base_repo_path, "data", "metadata.json"),
+                        f"{protein_name}.csv",
+                        experiment_result_dir,
+                        model,
+                        seed
+                    )
+                    stats["csv"] += 1
+                    experiment_stats["csv"] += 1
 
-                try:
-                    os.makedirs(experiment_result_dir, exist_ok=True)
+                if make_plot:
+                    plot_tmscore.plot_tm_score(
+                        os.path.join(experiment_result_dir, f"{protein_name}.csv"),
+                        save_file_name=f"{protein_name}.png",
+                        protein=protein_name,
+                        limit_axis=limit_axis,
+                        output_dir=experiment_result_dir,
+                        experiment_name=experiment_name,
+                        axis_bounds=axis_bounds,
+                        plot_guidelines=plot_guidelines,
+                        font_size=font_size,
+                        opacity=opacity,
+                        color_on=color_on,
+                        shape_on=shape_on,
+                        )
+                    stats["plots"] += 1
+                    experiment_stats["plots"] += 1
+            except Exception as e:
+                stats["failed"] += 1
+                experiment_stats["failed"] += 1
+                failures.append(f"{experiment_name}/{protein_name}: {e}")
+                print(f"[{datetime.now().strftime('%H:%M:%S')}]   Error processing {protein_name}: {e}")
 
-                    if make_csv:
-                        previous_console = plot_tmscore.console
-                        with open(os.devnull, "w") as devnull:
-                            try:
-                                plot_tmscore.console = Console(
-                                    file=devnull,
-                                    force_terminal=False,
-                                    color_system=None,
-                                )
-                                plot_tmscore.calc_tm_score_folders(
-                                    protein_name,
-                                    os.path.join(base_repo_path, "data", protein_name, "references"),
-                                    full_path,
-                                    os.path.join(base_repo_path, "data", "metadata.json"),
-                                    f"{protein_name}.csv",
-                                    experiment_result_dir,
-                                    model,
-                                    seed
-                                )
-                            finally:
-                                plot_tmscore.console = previous_console
-                        stats["csv"] += 1
-                        experiment_stats["csv"] += 1
-
-                    if make_plot:
-                        plot_tmscore.plot_tm_score(
-                            os.path.join(experiment_result_dir, f"{protein_name}.csv"),
-                            save_file_name=f"{protein_name}.png",
-                            protein=protein_name,
-                            limit_axis=limit_axis,
-                            output_dir=experiment_result_dir,
-                            experiment_name=experiment_name,
-                            axis_bounds=axis_bounds,
-                            plot_guidelines=plot_guidelines,
-                            font_size=font_size,
-                            opacity=opacity,
-                            color_on=color_on,
-                            shape_on=shape_on,
-                            )
-                        stats["plots"] += 1
-                        experiment_stats["plots"] += 1
-                except Exception as e:
-                    stats["failed"] += 1
-                    experiment_stats["failed"] += 1
-                    failures.append(f"{experiment_name}/{protein_name}: {e}")
-                finally:
-                    progress.advance(task)
-
-        console.print(
-            f"  [green]done[/] {experiment_name}: "
+        print(
+            f"[{datetime.now().strftime('%H:%M:%S')}]  done {experiment_name}: "
             f"CSV {experiment_stats['csv']}, plots {experiment_stats['plots']}, "
             f"skipped {experiment_stats['skipped']}, failed {experiment_stats['failed']}"
         )
 
-    console.print(
-        f"\n[bold green]Autoplot complete.[/] "
+    print(
+        f"\n[{datetime.now().strftime('%H:%M:%S')}] Autoplot complete. "
         f"CSV: {stats['csv']}, plots: {stats['plots']}, "
         f"skipped: {stats['skipped']}, failed: {stats['failed']}\n"
     )
 
     if failures:
-        console.print("[red bold]Failures:[/]")
+        print("Failures:")
         for failure in failures:
-            console.print(f"  [red]-[/] {failure}")
+            print(f"  - {failure}")
 
 
 if __name__ == "__main__":
