@@ -18,6 +18,9 @@ Usage:
     # Run with explicit input file paths (instead of names under data/)
     python scripts/predict.py --job custom --input-files /path/to/LAT1.a3m /path/to/ZnT8.fasta
 
+    # Run with a custom query sequence
+    python scripts/predict.py --job custom_seq --query-sequence MTEYKLVVVGAGGVGKSALTIQLIQNHFVDEYDPTIEDSYRKQVVIDGETCLLDILDTAGQEYSAMRDQYMRTGEGFLCVFAINNTKSFEDIHQYREQIKRVKDSDDVPMVLVGNKCDLAARTVESRQAQDLARSYGIPYIETSAKTRQGVEDAFYTLVREIRQHKLRKLNPPDESGPGCMSCKCVLS --query-name KRAS
+
     # Save results to a custom path (e.g. Google Drive on Colab)
     python scripts/predict.py --job baseline --input LAT1 --drive /content/drive/MyDrive/results
 
@@ -262,6 +265,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="Explicit paths to .a3m or .fasta input files. Output subdir uses each file's stem.",
     )
+    input_group.add_argument(
+        "--query-sequence",
+        type=str,
+        default=None,
+        help="A raw amino acid sequence to predict. Output subdir will use --query-name.",
+    )
+    p.add_argument(
+        "--query-name",
+        type=str,
+        default="custom_query",
+        help="Name to use for the query sequence when using --query-sequence. Defaults to 'custom_query'.",
+    )
     p.add_argument(
         "--drive",
         type=str,
@@ -426,6 +441,9 @@ def main(argv: list[str] | None = None) -> None:
     # Log the raw CLI input args (before input_paths is resolved below)
     if args.input_files is not None:
         logger.info("  input-files: %s", " ".join(str(p) for p in args.input_files))
+    elif args.query_sequence is not None:
+        logger.info("  query-sequence: %s", args.query_sequence)
+        logger.info("  query-name:     %s", args.query_name)
     elif args.input is not None:
         logger.info("  input:      %s", " ".join(args.input))
     else:
@@ -445,6 +463,10 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.input_files is not None:
         input_paths = resolve_input_paths(args.input_files)
+    elif args.query_sequence is not None:
+        temp_fasta = get_tmp_dir() / f"{args.query_name}.fasta"
+        temp_fasta.write_text(f">{args.query_name}\n{args.query_sequence}\n")
+        input_paths = [temp_fasta]
     else:
         input_paths = [resolve_input_file(p) for p in resolve_proteins(args.input)]
 
@@ -564,6 +586,15 @@ def main(argv: list[str] | None = None) -> None:
                                 _safe_copy(a3m, protein_result_dir / a3m.name)
                             config = tmp_path / "config.json"
                             if config.exists():
+                                if args.query_sequence is not None:
+                                    try:
+                                        with open(config, "r") as f:
+                                            cfg_data = json.load(f)
+                                        cfg_data["query_sequence"] = args.query_sequence
+                                        with open(config, "w") as f:
+                                            json.dump(cfg_data, f, indent=4)
+                                    except Exception as e:
+                                        console.print(f"  [yellow]warning[/] failed to update config.json with query_sequence: {e}")
                                 _safe_copy(config, protein_result_dir / config.name)
                             msa_saved = True
 
