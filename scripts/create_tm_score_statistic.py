@@ -45,29 +45,47 @@ def parse_ablation_details(experiment_name, nseq):
 
 def process_evaluations(data_files: list[str]) -> pd.DataFrame:
     dfs = []
+    has_if_labels = False
+    has_ia_labels = False
+
     for f in data_files:
+        try:
+            df = pd.read_csv(f)
+            if df.empty:
+                continue
 
-        df = pd.read_csv(f)
-
-        subfolder_name = Path(f).parent.name
-        # Example: If 'expermint is missing (older plotter didnt include it), fall back to 
-        # the subfolder nam e
-        if "experiment" not in df.columns or df["experiment"].dropna().empty:
+            subfolder_name = Path(f).parent.name
+            if "experiment" not in df.columns or df["experiment"].dropna().empty:
                 df["experiment"] = subfolder_name
-        dfs.append(df)
 
+            # Fix: Standardize headers per file BEFORE pd.concat
+            if "tm_IF" in df.columns:
+                df = df.rename(columns={"tm_IF": "state_1", "tm_OF": "state_2"})
+                has_if_labels = True
+            elif "tm_I" in df.columns:
+                df = df.rename(columns={"tm_I": "state_1", "tm_A": "state_2"})
+                has_ia_labels = True
+            else:
+                continue # Skip unknown file formats safely
+
+            dfs.append(df)
+        except Exception:
+            continue
+            
+    if not dfs:
+        raise ValueError("No valid or non-empty CSV files found.")
         
     df = pd.concat(dfs, ignore_index=True)
     
-    # Drop rows that have NaN values in vital TM score paths
-    if "tm_IF" in df.columns:
-        s1_col, s2_col = "tm_IF", "tm_OF"
+    # Replace the old if/elif block with this clean dynamic label selector:
+    if has_if_labels and has_ia_labels:
+        s1_label, s2_label = "State 1 (IF/I)", "State 2 (OF/A)"
+    elif has_if_labels:
         s1_label, s2_label = "Inward (IF)", "Outward (OF)"
-    elif "tm_I" in df.columns:
-        s1_col, s2_col = "tm_I", "tm_A"
-        s1_label, s2_label = "Inactive (I)", "Active (A)"
     else:
-        raise ValueError("CSV structure not recognized. Missing expected TM columns.")
+        s1_label, s2_label = "Inactive (I)", "Active (A)"
+
+    s1_col, s2_col = "state_1", "state_2"
 
     # Apply the corrected parsing function
     parsed = df.apply(lambda row: parse_ablation_details(row["experiment"], row["nseq"]), axis=1)
