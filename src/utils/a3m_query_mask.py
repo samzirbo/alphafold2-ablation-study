@@ -22,14 +22,33 @@ def read_fasta_sequence(fasta_path: Path) -> str:
 
 def read_a3m_records(a3m_path: Path) -> list[tuple[str, str]]:
     """Return (header, sequence) pairs from an A3M file."""
-    lines = [line.strip() for line in a3m_path.read_text().splitlines() if line.strip()]
-    if len(lines) % 2:
-        raise ValueError(f"A3M file must contain alternating header/sequence lines: {a3m_path}")
+    text = a3m_path.read_text()
+    if not text.strip():
+        raise ValueError(f"A3M file is empty: {a3m_path}")
+
     records: list[tuple[str, str]] = []
-    for i in range(0, len(lines), 2):
-        if not lines[i].startswith(">"):
-            raise ValueError(f"Expected FASTA header at line {i + 1} in {a3m_path}: {lines[i]!r}")
-        records.append((lines[i], lines[i + 1]))
+    header: str | None = None
+    seq_parts: list[str] = []
+
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith(">"):
+            if header is not None:
+                records.append((header, "".join(seq_parts)))
+            header = line
+            seq_parts = []
+        elif header is None:
+            raise ValueError(f"Expected FASTA header before sequence in {a3m_path}")
+        else:
+            seq_parts.append(line)
+
+    if header is not None:
+        records.append((header, "".join(seq_parts)))
+
+    if not records:
+        raise ValueError(f"No records found in A3M file: {a3m_path}")
     return records
 
 

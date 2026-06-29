@@ -78,7 +78,11 @@ def resolve_query_mask_positions(
     if not fasta_path.exists():
         raise FileNotFoundError(f"Missing original FASTA for query-mask comparison: {fasta_path}")
 
-    positions = tuple(find_query_mask_positions_from_files(fasta_path, a3m_path))
+    try:
+        positions = tuple(find_query_mask_positions_from_files(fasta_path, a3m_path))
+    except Exception as exc:
+        console.print(f"  [yellow]warning[/] could not read query mask from {a3m_path.name}: {exc}")
+        return ()
     if positions:
         console.print(
             f"  [cyan]query mask[/] {len(positions)} positions — {list(positions)}"
