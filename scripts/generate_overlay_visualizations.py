@@ -34,7 +34,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--result_path", type=Path, required=True)
     parser.add_argument("--output_path", type=Path, required=True)
     parser.add_argument("--base_repo_path", type=Path, default=ROOT)
-    parser.add_argument("--experiment", required=True, help="Experiment folder name under result_path.")
+    parser.add_argument(
+        "--experiment",
+        nargs="+",
+        required=True,
+        help="One or more experiment folder names under result_path.",
+    )
     parser.add_argument("--protein", required=True, help="Protein name (e.g. LAT1).")
     parser.add_argument("--gif", action="store_true")
     parser.add_argument("--gif-frames", type=int, default=GIF_FRAMES_DEFAULT)
@@ -83,22 +88,81 @@ def resolve_query_mask_positions(
     return positions
 
 
+def render_experiment(
+    *,
+    experiment: str,
+    result_path: Path,
+    output_path: Path,
+    base_repo_path: Path,
+    protein: str,
+    state_refs: list[tuple[str, Path, str]],
+    renderer: OverlayRenderer,
+    query_mask: bool,
+    gif: bool,
+    gif_frames: int,
+) -> tuple[int, int, list[str]]:
+    experiment_dir = result_path / experiment
+    protein_dir = experiment_dir / protein
+    if not experiment_dir.is_dir():
+        raise FileNotFoundError(f"Experiment not found: {experiment_dir}")
+    if not protein_dir.is_dir():
+        raise FileNotFoundError(f"Protein directory not found: {protein_dir}")
+
+    pdb_paths = sorted(protein_dir.glob(PDB_PATTERN), key=pdb_sort_key)
+    if not pdb_paths:
+        raise FileNotFoundError(f"No prediction PDBs found in {protein_dir}")
+
+    console.print(f"\n[bold cyan]Experiment:[/] {experiment}")
+    highlight_residues = resolve_query_mask_positions(
+        base_repo_path,
+        experiment_dir,
+        protein,
+        query_mask=query_mask,
+    )
+
+    out_dir = output_path / experiment / protein
+    failures: list[str] = []
+    png_count = 0
+    gif_count = 0
+
+    for state_key, ref_pdb, slug in state_refs:
+        console.print(f"  [bold]Reference:[/] {slug}")
+        renderer.prepare_fixed_view(ref_pdb)
+
+        for pdb_path in pdb_paths:
+            stem = f"reference_overlay_{slug}_{pdb_path.stem}"
+            png_path = out_dir / f"{stem}.png"
+            gif_path = out_dir / f"{stem}.gif"
+            try:
+                renderer.load_overlay(
+                    pdb_path,
+                    ref_pdb,
+                    state_key=state_key,
+                    highlight_residues=list(highlight_residues),
+                )
+                renderer.save_overlay_png(png_path, title=experiment)
+                png_count += 1
+                if gif:
+                    renderer.save_overlay_gif(
+                        gif_path,
+                        frames=gif_frames,
+                        duration=GIF_DURATION_DEFAULT,
+                    )
+                    gif_count += 1
+                console.print(f"    [green]ok[/] {pdb_path.name}")
+            except Exception as exc:
+                failures.append(f"{experiment}/{slug}/{pdb_path.name}: {exc}")
+                console.print(f"    [red]failed[/] {pdb_path.name}: {exc}")
+
+    return png_count, gif_count, failures
+
+
 def main() -> None:
     args = parse_args()
     result_path = args.result_path.expanduser().resolve()
     output_path = args.output_path.expanduser().resolve()
     base_repo_path = args.base_repo_path.expanduser().resolve()
-    experiment = args.experiment
     protein = args.protein
-
-    experiment_dir = result_path / experiment
-    protein_dir = experiment_dir / protein
-    if not experiment_dir.is_dir():
-        console.print(f"[red bold]FAILED[/] Experiment not found: {experiment_dir}")
-        sys.exit(1)
-    if not protein_dir.is_dir():
-        console.print(f"[red bold]FAILED[/] Protein directory not found: {protein_dir}")
-        sys.exit(1)
 
     metadata = load_metadata(base_repo_path)
     if protein not in metadata:
@@ -114,73 +178,44 @@ def main() -> None:
             sys.exit(1)
         state_refs.append((state_key, ref_pdb, reference_slug(metadata, protein, state_key)))
 
-    pdb_paths = sorted(protein_dir.glob(PDB_PATTERN), key=pdb_sort_key)
-    if not pdb_paths:
-        console.print(f"[red bold]FAILED[/] No prediction PDBs found in {protein_dir}")
-        sys.exit(1)
-
-    console.print(f"[bold]Generating overlay visualizations[/]")
-    console.print(f"  experiment: {experiment}")
-    console.print(f"  protein:    {protein}")
-    console.print(f"  results:    [dim]{result_path}[/]")
-    console.print(f"  output:     [dim]{output_path}[/]")
-    console.print(f"  mode:       overlay PNG{' + overlay GIF' if args.gif else ''}")
+    console.print("[bold]Generating overlay visualizations[/]")
+    console.print(f"  experiments: {', '.join(args.experiment)}")
+    console.print(f"  protein:     {protein}")
+    console.print(f"  results:     [dim]{result_path}[/]")
+    console.print(f"  output:      [dim]{output_path}[/]")
+    console.print(f"  mode:        overlay PNG{' + overlay GIF' if args.gif else ''}")
     if args.query_mask:
-        console.print("  query:      [cyan]mask highlighting enabled[/]")
+        console.print("  query:       [cyan]mask highlighting enabled[/]")
 
-    try:
-        highlight_residues = resolve_query_mask_positions(
-            base_repo_path,
-            experiment_dir,
-            protein,
-            query_mask=args.query_mask,
-        )
-    except Exception as exc:
-        console.print(f"[red bold]FAILED[/] {exc}")
-        sys.exit(1)
-
-    out_dir = output_path / experiment / protein
+    total_png = 0
+    total_gif = 0
     failures: list[str] = []
-    png_count = 0
-    gif_count = 0
 
     with OverlayRenderer() as renderer:
-        for state_key, ref_pdb, slug in state_refs:
-            console.print(f"\n[bold cyan]Reference:[/] {slug}")
+        for experiment in args.experiment:
             try:
-                renderer.prepare_fixed_view(ref_pdb)
+                png_count, gif_count, exp_failures = render_experiment(
+                    experiment=experiment,
+                    result_path=result_path,
+                    output_path=output_path,
+                    base_repo_path=base_repo_path,
+                    protein=protein,
+                    state_refs=state_refs,
+                    renderer=renderer,
+                    query_mask=args.query_mask,
+                    gif=args.gif,
+                    gif_frames=args.gif_frames,
+                )
+                total_png += png_count
+                total_gif += gif_count
+                failures.extend(exp_failures)
             except Exception as exc:
-                console.print(f"[red bold]FAILED[/] Could not prepare view for {slug}: {exc}")
-                sys.exit(1)
-
-            for pdb_path in pdb_paths:
-                stem = f"reference_overlay_{slug}_{pdb_path.stem}"
-                png_path = out_dir / f"{stem}.png"
-                gif_path = out_dir / f"{stem}.gif"
-                try:
-                    renderer.load_overlay(
-                        pdb_path,
-                        ref_pdb,
-                        state_key=state_key,
-                        highlight_residues=list(highlight_residues),
-                    )
-                    renderer.save_overlay_png(png_path, title=experiment)
-                    png_count += 1
-                    if args.gif:
-                        renderer.save_overlay_gif(
-                            gif_path,
-                            frames=args.gif_frames,
-                            duration=GIF_DURATION_DEFAULT,
-                        )
-                        gif_count += 1
-                    console.print(f"  [green]ok[/] {pdb_path.name}")
-                except Exception as exc:
-                    failures.append(f"{slug}/{pdb_path.name}: {exc}")
-                    console.print(f"  [red]failed[/] {pdb_path.name}: {exc}")
+                failures.append(f"{experiment}: {exc}")
+                console.print(f"[red bold]FAILED[/] {experiment}: {exc}")
 
     console.print(
         f"\n[bold green]Overlay visualization complete.[/] "
-        f"PNG: {png_count}, GIF: {gif_count}, failed: {len(failures)}\n"
+        f"PNG: {total_png}, GIF: {total_gif}, failed: {len(failures)}\n"
     )
     if failures:
         sys.exit(1)
