@@ -58,6 +58,11 @@ def process_evaluations(data_files: list[str]) -> pd.DataFrame:
             if "experiment" not in df.columns or df["experiment"].dropna().empty:
                 df["experiment"] = subfolder_name
 
+            if "protein" not in df.columns or df["protein"].dropna().empty:
+                print(f"[WARNING] Missing 'protein' header in file: '{f}'")
+                print(f"          -> Fallback applied: Assigning protein tracking label as '{subfolder_name}'\n")
+                df["protein"] = subfolder_name
+
             # Fix: Standardize headers per file BEFORE pd.concat
             if "tm_IF" in df.columns:
                 df = df.rename(columns={"tm_IF": "state_1", "tm_OF": "state_2"})
@@ -66,6 +71,11 @@ def process_evaluations(data_files: list[str]) -> pd.DataFrame:
                 df = df.rename(columns={"tm_I": "state_1", "tm_A": "state_2"})
                 has_ia_labels = True
             else:
+                available_cols = list(df.columns)
+                print(f"[WARNING] Dropping file: '{f}'")
+                print(f"          Reason: Could not find expected TM structural headers.")
+                print(f"          Found columns: {available_cols}")
+                print(f"          Expected: ['tm_IF', 'tm_OF'] OR ['tm_I', 'tm_A']\n")
                 continue # Skip unknown file formats safely
 
             dfs.append(df)
@@ -208,7 +218,18 @@ Output Report Columns Dictionary:
     try:
         
         input_path = Path(args.data_dir)
-        csv_files = [str(p) for p in input_path.rglob("*.csv")]
+
+        # ─── FIXED GOOGLE DRIVE FILE SEARCH START ───
+        import os
+        csv_files = []
+        
+        # os.walk with followlinks=True forces Google Drive to open and read subfolders
+        for root, dirs, files in os.walk(input_path, followlinks=True):
+            for file in files:
+                if file.endswith(".csv"):
+                    full_path = os.path.join(root, file)
+                    csv_files.append(full_path)
+        # ─── FIXED GOOGLE DRIVE FILE SEARCH END ───
 
         if not csv_files:
             raise FileNotFoundError(f"No CSV files found in directory: {args.data_dir}")
