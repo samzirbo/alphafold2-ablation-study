@@ -20,6 +20,14 @@ def read_fasta_sequence(fasta_path: Path) -> str:
     return lines[0]
 
 
+def _is_a3m_preamble_line(line: str) -> bool:
+    """Return True for comment/metadata lines before the first FASTA header."""
+    if line.startswith("#"):
+        return True
+    parts = line.split()
+    return len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit()
+
+
 def read_a3m_records(a3m_path: Path) -> list[tuple[str, str]]:
     """Return (header, sequence) pairs from an A3M file."""
     text = a3m_path.read_text()
@@ -40,6 +48,8 @@ def read_a3m_records(a3m_path: Path) -> list[tuple[str, str]]:
             header = line
             seq_parts = []
         elif header is None:
+            if _is_a3m_preamble_line(line):
+                continue
             raise ValueError(f"Expected FASTA header before sequence in {a3m_path}")
         else:
             seq_parts.append(line)
