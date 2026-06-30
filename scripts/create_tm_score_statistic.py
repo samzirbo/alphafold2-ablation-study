@@ -115,8 +115,15 @@ def process_evaluations(data_files: list[str]) -> pd.DataFrame:
     # Compute Delta Change relative to baseline (Ablation Level == 0)
     base_cases = stats[stats["ablation_val"] == 0].set_index(["exp_type", "protein"])
 
+    #print(f"base_cases: {base_cases}")
+    #print(f"base_cases.index: {base_cases.index}")
+    print(f"stats: {stats}")
+
+
     def get_delta(row, state_mean_col):
         key = (row["exp_type"], row["protein"])
+        #print(f"key: {key}")
+        #print(f"base_case index: {base_cases.index}")
         if key in base_cases.index:
             base_row = base_cases.loc[[key]]
             base_mean = base_row[state_mean_col].values[0]
