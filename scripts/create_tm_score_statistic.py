@@ -6,6 +6,24 @@ import numpy as np
 from datetime import datetime
 import traceback
 
+# --- HARDCODED BASELINE VALUES of Depth 5120 INTEGRATION ---
+# Potentially mean values or any other metric can also be applied here! 
+BASELINE_LOOKUP = {
+    "ASCT2":  {"s1": 0.906875, "s2": 0.953802},
+    "CCR5":   {"s1": 0.837234, "s2": 0.765150},
+    "CGRPR":  {"s1": 0.691546, "s2": 0.716012},
+    "FZD7":   {"s1": 0.738993, "s2": 0.836577},
+    "LAT1":   {"s1": 0.956259, "s2": 0.947826},
+    "MCT1":   {"s1": 0.979506, "s2": 0.817855},
+    "MurJ":   {"s1": 0.970554, "s2": 0.749366},
+    "PTH1R":  {"s1": 0.442997, "s2": 0.708095},
+    "PfMATE": {"s1": 0.745133, "s2": 0.994258},
+    "SERT":   {"s1": 0.921699, "s2": 0.988293},
+    "STP10":  {"s1": 0.947572, "s2": 0.955642},
+    "ZnT8":   {"s1": 0.898871, "s2": 0.896885}
+}
+
+
 
 def parse_ablation_details(experiment_name, nseq):
     """
@@ -112,29 +130,25 @@ def process_evaluations(data_files: list[str]) -> pd.DataFrame:
     # Drop any protein aggregates that ended up completely empty (e.g. CCR5, CGRPR)
     stats = stats.dropna(subset=["s1_mean", "s2_mean"])
 
-    # Compute Delta Change relative to baseline (Ablation Level == 0)
-    base_cases = stats[stats["ablation_val"] == 0].set_index(["exp_type", "protein"])
+# 1. Isolate the baselines using ONLY the protein name as the unique key
+    # (Assuming every protein has exactly one baseline entry where ablation_val == 0)
+    baselines_df = stats[stats["ablation_val"] == 0].set_index("protein")
 
-    #print(f"base_cases: {base_cases}")
-    #print(f"base_cases.index: {base_cases.index}")
-    print(f"stats: {stats}")
-
-
-    def get_delta(row, state_mean_col):
-        key = (row["exp_type"], row["protein"])
-        #print(f"key: {key}")
-        #print(f"base_case index: {base_cases.index}")
-        if key in base_cases.index:
-            base_row = base_cases.loc[[key]]
-            base_mean = base_row[state_mean_col].values[0]
-            return row[state_mean_col] - base_mean
+    def get_delta(row, state_key):
+        protein_key = str(row["protein"]).strip()
+        max_col = "s1_max" if state_key == "s1" else "s2_max"
+        
+        # Pull baseline value directly from hardcoded object dictionary
+        if protein_key in BASELINE_LOOKUP:
+            base_max = BASELINE_LOOKUP[protein_key][state_key]
+            return row[max_col] - base_max
+            
         return 0.0
 
-    stats["s1_delta"] = stats.apply(lambda r: get_delta(r, "s1_mean"), axis=1)
-    stats["s2_delta"] = stats.apply(lambda r: get_delta(r, "s2_mean"), axis=1)
+    stats["s1_delta"] = stats.apply(lambda r: get_delta(r, "s1"), axis=1)
+    stats["s2_delta"] = stats.apply(lambda r: get_delta(r, "s2"), axis=1)
     
     return stats, (s1_label, s2_label)
-
 
 def generate_markdown_reports(stats, labels, output_path=None):
     s1_lbl, s2_lbl = labels
@@ -183,10 +197,10 @@ def main():
     usage_examples = f"""
 Examples of usage:
   # 1. Omitting output saves automatically to current directory (e.g., {default_filename})
-  python %(prog)s -i data/*.csv
+  python %(prog)s -i data/
 
   # 2. Specifying a custom output path
-  python %(prog)s -i data/*.csv -o custom_report.md
+  python %(prog)s -i data/ -o custom_report.md
 
 
 Output Report Columns Dictionary:
@@ -196,7 +210,7 @@ Output Report Columns Dictionary:
     Min [State]           The minimum observed TM score for that specific state configuration group.
     Max [State]           The peak observed TM score achievement.
     Mean [State]          Arithmetic average of structural scores across matching runs.
-    Δ Base [State]        Mathematical absolute difference comparing current Mean score to the matching 
+    Δ Base [State]        Mathematical absolute difference comparing current Max score to the matching 
                         Baseline run (Ablation Level == 0). Negative implies degradation.
     """
 
