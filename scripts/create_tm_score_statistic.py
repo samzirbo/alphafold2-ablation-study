@@ -7,6 +7,7 @@ from datetime import datetime
 import traceback
 
 import os
+import sys
 
 # --- HARDCODED BASELINE VALUES of Depth 5120 INTEGRATION ---
 # Potentially mean values or any other metric can also be applied here! 
@@ -194,7 +195,40 @@ def generate_markdown_reports(stats, labels, output_path=None):
 
 def main():
     # Generate a dynamic default filename with a timestamp
+
+
     default_filename = f"ablation_report_{datetime.now().strftime('%Y-%m-%d')}.md"
+
+    class DynamicHelpAction(argparse._HelpAction):
+        def __call__(self, parser, namespace, values, option_string=None):
+            # Fallback default path
+            data_dir = "data/"
+            
+            # Manually extract the data directory from raw sys.argv if present
+            # Checks for both '-i value' and '--data_dir value' or '--data_dir=value'
+            for i, arg in enumerate(sys.argv):
+                if arg in ["-i", "--data_dir"]:
+                    if i + 1 < len(sys.argv):
+                        data_dir = sys.argv[i + 1]
+                elif arg.startswith("--data_dir="):
+                    data_dir = arg.split("=", 1)[1]
+            
+            subfolders = []
+            path = Path(data_dir)
+            if path.exists() and path.is_dir():
+                for root, dirs, _ in os.walk(path, followlinks=True):
+                    rel = os.path.relpath(root, path)
+                    if rel != ".":
+                        subfolders.append(f"    - {rel}")
+            
+            if subfolders:
+                folder_list_str = f"\nAvailable subfolders found in '{data_dir}':\n" + "\n".join(subfolders)
+                parser.epilog = getattr(parser, 'epilog', '') + folder_list_str
+            else:
+                parser.epilog = getattr(parser, 'epilog', '') + f"\n\nNo subfolders discovered in '{data_dir}' (or directory doesn't exist yet)."
+            
+            super().__call__(parser, namespace, values, option_string)
+
 
     usage_examples = f"""
 Examples of usage:
@@ -222,9 +256,16 @@ Output Report Columns Dictionary:
     parser = argparse.ArgumentParser(
         description="Process ablation experiment evaluation logs.",
         epilog=usage_examples,
-        formatter_class=argparse.RawDescriptionHelpFormatter
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        add_help=False
     )
     
+
+    parser.add_argument(
+        '-h', '--help', 
+        action=DynamicHelpAction, 
+        help='show this help message and exit'
+    )
     parser.add_argument(
         "-i", "--data_dir", 
         type=str, 
