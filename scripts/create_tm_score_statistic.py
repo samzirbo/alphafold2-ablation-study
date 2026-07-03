@@ -275,7 +275,7 @@ Output Report Columns Dictionary:
                     continue
 
                 # Skip if no include match 
-                if args.experiment_include and not any(p.lower() in foldername.lower() for x in args.experiment_include):
+                if args.experiment_include and not any(x.lower() in foldername.lower() for x in args.experiment_include):
                     continue
 
         
