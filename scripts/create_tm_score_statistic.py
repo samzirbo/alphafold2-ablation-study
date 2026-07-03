@@ -228,7 +228,6 @@ Output Report Columns Dictionary:
     parser.add_argument(
         "-i", "--data_dir", 
         type=str, 
-        required=True,
         default="/content/drive/MyDrive/AlphaFold2 Ablation Study/04_Results/plots/TM_Score/",
         help="Path to the directory containing evaluation CSV files."
     )
@@ -276,7 +275,7 @@ Output Report Columns Dictionary:
                     continue
 
                 # Skip if no include match 
-                if args.experiment_include and not any(i.lower() in foldername.lower() for x in args.experiment_include):
+                if args.experiment_include and not any(p.lower() in foldername.lower() for x in args.experiment_include):
                     continue
 
         
