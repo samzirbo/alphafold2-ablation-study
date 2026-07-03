@@ -38,7 +38,7 @@ def parse_ablation_details(experiment_name, nseq):
     # 1. CATCH THE BASELINE / CONTROL FOLDER
     # Adjust these strings if your baseline directory is named differently
 
-    if exp_str.lower() in ["base_case", "control", "baseline", "nan", "depth_5120", "no experiment type"]:
+    if exp_str.lower() in ["base_case", "control", "baseline", "nan", "no experiment type"]:
         # We default it to the primary experiment type we are analyzing
         return "Baseline", 0
 
