@@ -6,6 +6,8 @@ import numpy as np
 from datetime import datetime
 import traceback
 
+import os
+
 # --- HARDCODED BASELINE VALUES of Depth 5120 INTEGRATION ---
 # Potentially mean values or any other metric can also be applied here! 
 BASELINE_LOOKUP = {
@@ -202,6 +204,9 @@ Examples of usage:
   # 2. Specifying a custom output path
   python %(prog)s -i data/ -o custom_report.md
 
+  # 3. Match multiple patterns (e.g., must contain 'query' OR 'row')
+  python %(prog)s -i data/ --experiment_include query row
+
 
 Output Report Columns Dictionary:
     Experiment Type       The categorized track evaluated (e.g., Query Mask, MSA Depth Reduction).
@@ -224,6 +229,7 @@ Output Report Columns Dictionary:
         "-i", "--data_dir", 
         type=str, 
         required=True,
+        default="/content/drive/MyDrive/AlphaFold2 Ablation Study/04_Results/plots/TM_Score/",
         help="Path to the directory containing evaluation CSV files."
     )
     
@@ -233,6 +239,20 @@ Output Report Columns Dictionary:
         default=default_filename,
         help=f"Path to output markdown file. Defaults to '{default_filename}' if omitted."
     )
+
+    parser.add_argument(
+        "--experiment_include",
+        type=str,
+        nargs="+",
+        help="One or more substrings. Only process subfolders that contain at least one of these strings."
+    )
+    parser.add_argument(
+        "--experiment_exclude",
+        type=str,
+        nargs="+",
+        help= "One or more substrings. Completely skip subfolders containing any of these strings."
+    )
+
     
     args = parser.parse_args()
     
@@ -241,11 +261,27 @@ Output Report Columns Dictionary:
         input_path = Path(args.data_dir)
 
         # ─── FIXED GOOGLE DRIVE FILE SEARCH START ───
-        import os
+
         csv_files = []
         
         # os.walk with followlinks=True forces Google Drive to open and read subfolders
         for root, dirs, files in os.walk(input_path, followlinks=True):
+
+            folder_name = os.path.relpath(root, input_path)
+
+            # Skip base dir
+            if folder_name != ".":
+                #Exclusion: Skip any exclude keywors
+                if args.experiment_exclude and any(x.lower() in folder_name.lower() for x in args.experiment_exclude):
+                    continue
+
+                # Skip if no include match 
+                if args.experiment_include and not any(i.lower() in foldername.lower() for x in args.experiment_include):
+                    continue
+
+        
+                
+
             for file in files:
                 if file.endswith(".csv"):
                     full_path = os.path.join(root, file)
