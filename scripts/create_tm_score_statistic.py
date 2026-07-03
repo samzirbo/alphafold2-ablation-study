@@ -197,7 +197,7 @@ def main():
     # Generate a dynamic default filename with a timestamp
 
 
-    default_filename = f"ablation_report_{datetime.now().strftime('%Y-%m-%d')}.md"
+    default_filename = f"/content/drive/MyDrive/AlphaFold2 Ablation Study/04_Results/plots/TM_Score/ablation_report_{datetime.now().strftime('%Y-%m-%d')}.md"
 
     class DynamicHelpAction(argparse._HelpAction):
         def __call__(self, parser, namespace, values, option_string=None):
