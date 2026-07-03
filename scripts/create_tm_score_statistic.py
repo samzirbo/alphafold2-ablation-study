@@ -202,7 +202,7 @@ def main():
     class DynamicHelpAction(argparse._HelpAction):
         def __call__(self, parser, namespace, values, option_string=None):
             # Fallback default path
-            data_dir = "data/"
+            data_dir = "/content/drive/MyDrive/AlphaFold2 Ablation Study/04_Results/plots/TM_Score/"
             
             # Manually extract the data directory from raw sys.argv if present
             # Checks for both '-i value' and '--data_dir value' or '--data_dir=value'
