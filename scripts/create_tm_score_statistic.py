@@ -316,8 +316,27 @@ Output Report Columns Dictionary:
                     continue
 
                 # Skip if no include match 
-                if args.experiment_include and not any(x.lower() in folder_name.lower() for x in args.experiment_include):
-                    continue
+                if args.experiment_include:
+                    match_found = False
+                    for x in args.experiment_include:
+                        x_low = x.lower()
+                        f_low = folder_name.lower()
+                        
+                        # Specific fix: If include string contains a digit, require exact match with top-level folder
+                        # to prevent 'query_mask_5' from matching 'query_mask_50' or 'query_mask_5_Seed0'
+                        if any(c.isdigit() for c in x_low):
+                            top_level_folder = f_low.replace('\\', '/').split('/')[0]
+                            if x_low == top_level_folder:
+                                match_found = True
+                                break
+                        else:
+                            # Generic pattern (e.g., 'query' or 'row') -> allow substring match
+                            if x_low in f_low:
+                                match_found = True
+                                break
+                                
+                    if not match_found:
+                        continue
 
         
                 
