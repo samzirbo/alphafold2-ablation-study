@@ -177,7 +177,7 @@ def get_axis_lower_limit(protein: str) -> float:
 
 def depth_color(depth: int):
     values = [16, 32, 64, 128, 256, 512, 1024, 5120]
-    cmap = plt.cm.gist_rainbow
+    cmap = plt.cm.okabe_ito
     positions = np.linspace(0, 1, len(values))
     color_dict = {
         v: mcolors.to_hex(cmap(p))
