@@ -1,5 +1,6 @@
 import argparse
 import json
+import os
 import warnings
 from datetime import datetime
 from pathlib import Path
@@ -118,13 +119,26 @@ def calc_tm_score_folders(
     with progress:
         task = progress.add_task(protein, total=len(target_files))
         for target_file in target_files:
+            # Skip files whose model/seed can't be parsed as integers, e.g.
+            # Google-Drive re-download duplicates like "..._seed_000(1).pdb".
+            try:
+                seed_value = int(target_file.split("_")[-1].split(".")[0])
+                model_value = int(target_file.split("_")[-3])
+            except ValueError:
+                warnings.warn(
+                    f"Skipping {target_file}: unexpected file name, cannot parse model/seed."
+                )
+                continue
+
             row = {
                 "protein": protein,
                 "nseq": nseq,
                 "reference_tm": reference_tm,
-                "seed": int(target_file.split("_")[-1].split(".")[0]),
-                "model": int(target_file.split("_")[-3]),
-                "experiment": output_dir.split("/")[-1]
+                "seed": seed_value,
+                "model": model_value,
+                # basename of the experiment output folder; use os.path so this
+                # is correct on Windows (backslash paths) as well as POSIX.
+                "experiment": os.path.basename(os.path.normpath(output_dir))
             }
             for reference_file in reference_files:
                 tm_score, len_seq1, len_seq2 = __calc_tm_score(
@@ -247,6 +261,17 @@ def plot_tm_score(
 
     data = data.sort_values(color_on)
 
+    # Non-numeric color columns (e.g. "experiment") can't be shown on a colorbar,
+    # so they get a discrete Okabe-Ito color per category and a legend instead.
+    color_is_categorical = color_on != "nseq" and not pd.api.types.is_numeric_dtype(data[color_on])
+    if color_is_categorical:
+        color_categories = np.sort(data[color_on].unique())
+        _okabe = plt.cm.okabe_ito
+        category_color_map = {
+            cat: mcolors.to_hex(_okabe(i % _okabe.N))
+            for i, cat in enumerate(color_categories)
+        }
+
     fig, ax = plt.subplots(figsize=(5, 5), dpi=300)
     ax.grid(True, color="lightgray", linewidth=0.5, alpha=0.4)
 
@@ -261,10 +286,17 @@ def plot_tm_score(
 
         for cat in categories:
             mask = data[shape_on] == cat
+            if color_is_categorical:
+                point_colors = [category_color_map[v] for v in data.loc[mask, color_on]]
+            elif color_on == "nseq":
+                point_colors = [depth_color(d) for d in data.loc[mask, color_on]]
+            else:
+                point_colors = data.loc[mask, color_on]
+
             scatter = ax.scatter(
                 data.loc[mask, x_col_name],
                 data.loc[mask, y_col_name],
-                c=[depth_color(d) for d in data.loc[mask, color_on]] if color_on == "nseq" else data.loc[mask, color_on],
+                c=point_colors,
                 marker=marker_map[cat],
                 s=30,
                 edgecolors="black",
@@ -297,6 +329,9 @@ def plot_tm_score(
     else:
         if color_on == "nseq":
             c_vals = [depth_color(d) for d in data[color_on]]
+            cmap, norm = None, None
+        elif color_is_categorical:
+            c_vals = [category_color_map[v] for v in data[color_on]]
             cmap, norm = None, None
         else:
             unique_vals = np.sort(data[color_on].unique())
@@ -393,6 +428,35 @@ def plot_tm_score(
             cbar.ax.tick_params(which="minor", length=0)
         else:
             depth_text = f"{unique_depths[0]}"
+    elif color_is_categorical:
+        depth_text = f"{', '.join([str(x) for x in np.sort(data["nseq"].unique()).tolist()])}"
+
+        color_handles = [
+            Line2D(
+                [0], [0],
+                marker="o",
+                linestyle="",
+                markerfacecolor=category_color_map[cat],
+                markeredgecolor="black",
+                markersize=6,
+                label=str(cat),
+            )
+            for cat in color_categories
+        ]
+
+        # A shape legend may already sit at the bottom; keep it and add the
+        # color legend on the right so both are visible.
+        existing_legend = ax.get_legend()
+        color_legend = ax.legend(
+            handles=color_handles,
+            title=f"{color_on}:",
+            loc="center left",
+            bbox_to_anchor=(1.02, 0.5),
+            fontsize=font_size + 1,
+            title_fontproperties=FontProperties(weight="bold", size=font_size + 2),
+        )
+        if existing_legend is not None:
+            ax.add_artist(existing_legend)
     else:
         depth_text = f"{', '.join([str(x) for x in np.sort(data["nseq"].unique()).tolist()])}"
         cbar = plt.colorbar(scatter, ax=ax)
@@ -469,10 +533,16 @@ def combine_plots(
 
     combined_df = pd.concat(dfs, ignore_index=True)
 
-    filename = (
-        f"{('').join(data_files[0].split(".")[:-1])}_COMBINED_"
-        f"{datetime.now().strftime('%m_%d_%H_%M')}.csv"
-    )
+    if output_dir is not None:
+        out = output_dir if output_dir.endswith("/") else output_dir + "/"
+        os.makedirs(out, exist_ok=True)
+        base = protein if protein is not None else "combined"
+        filename = f"{out}{base}_combined.csv"
+    else:
+        filename = (
+            f"{('').join(data_files[0].split(".")[:-1])}_COMBINED_"
+            f"{datetime.now().strftime('%m_%d_%H_%M')}.csv"
+        )
 
     combined_df.to_csv(filename, index=False)
     print("Saved COMBINED file to", filename)

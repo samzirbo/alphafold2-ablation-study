@@ -206,6 +206,202 @@ def autoplot_tmscore(
 
 
 
+def autoplot_tmscore_combined(
+        result_path,
+        base_repo_path,
+        experiments=None,
+        combined_label="combined",
+        limit_axis=True,
+        axis_bounds=None,
+        plot_guidelines=True,
+        font_size=8,
+        opacity=1,
+        model=None,
+        seed=None,
+        color_on="experiment",
+        shape_on=None,
+        rerun="missing",
+        file_name_prefix="",
+):
+    """Overlay several experiments of the same protein in a single TM-score plot.
+
+    For every protein, the per-experiment CSVs (the same files produced by
+    ``autoplot_tmscore``) are reused when present and only recomputed when
+    missing or when ``rerun`` requests it, then concatenated and plotted
+    together. Experiments are distinguished by ``color_on``/``shape_on``
+    (default: color by ``experiment``).
+
+    :param experiments: list of experiment folder names to combine. If None,
+        every experiment folder in ``result_path`` is used.
+    :param combined_label: sub-folder name under ``plots/TM_Score/combined``
+        where the combined plots and CSVs are written (lets you keep several
+        different experiment groupings side by side).
+    """
+    if rerun not in rerun_choices:
+        raise ValueError(f"rerun must be one of {rerun_choices}, got {rerun!r}")
+
+    console.print("[bold]Combining experiments into one plot per protein[/]")
+    console.print(f"  results: [dim]{result_path}[/]")
+    console.print(f"  rerun:   [cyan]{rerun}[/]")
+
+    all_subdirectories = glob.glob(os.path.join(result_path, '*'))
+    available = {}
+    for subdir in all_subdirectories:
+        name = os.path.basename(subdir)
+        if os.path.isdir(subdir) and name not in directories_to_exclude:
+            available[name] = subdir
+
+    if experiments:
+        selected = []
+        for name in experiments:
+            if name in available:
+                if name not in selected:
+                    selected.append(name)
+            else:
+                console.print(f"  [yellow]warning[/] experiment {name!r} not found in {result_path}")
+    else:
+        selected = list(available.keys())
+
+    if not selected:
+        console.print(f"  [yellow]warning[/] No experiments to combine in {result_path}")
+        return
+    if len(selected) < 2:
+        console.print(
+            f"  [yellow]warning[/] Only {len(selected)} experiment(s) selected; "
+            f"a combined plot needs at least 2 to be meaningful."
+        )
+
+    console.print(f"  experiments ({len(selected)}): [cyan]{', '.join(selected)}[/]")
+
+    plots_dir = os.path.join(result_path, "plots/TM_Score")
+    combined_dir = os.path.join(plots_dir, "combined", combined_label)
+    os.makedirs(combined_dir, exist_ok=True)
+    print("Saving results in ", combined_dir)
+
+    # protein -> list of (experiment_name, protein_prediction_path)
+    protein_entries = {}
+    for experiment_name in selected:
+        found = []
+        for root, dirs, files in os.walk(available[experiment_name]):
+            for protein_name in proteins:
+                for d in dirs:
+                    if protein_name == d:
+                        full_path = os.path.join(root, d)
+                        if full_path not in found:
+                            found.append(full_path)
+                            protein_entries.setdefault(protein_name, []).append(
+                                (experiment_name, full_path)
+                            )
+
+    if not protein_entries:
+        console.print("  [yellow]warning[/] No protein prediction folders found.")
+        return
+
+    ordered_proteins = [p for p in proteins if p in protein_entries]
+
+    stats = {"csv": 0, "plots": 0, "skipped": 0, "failed": 0}
+    failures = []
+
+    progress = Progress(
+        SpinnerColumn(),
+        TextColumn("  {task.description}"),
+        BarColumn(),
+        MofNCompleteColumn(),
+        TextColumn("proteins"),
+        console=console,
+        transient=True,
+    )
+
+    with progress:
+        task = progress.add_task("proteins", total=len(ordered_proteins))
+
+        for protein_name in ordered_proteins:
+            progress.update(task, description=protein_name)
+            entries = protein_entries[protein_name]
+
+            png_path = os.path.join(combined_dir, file_name_prefix + protein_name + ".png")
+            make_plot = rerun in {"plots", "all"} or not os.path.exists(png_path)
+
+            try:
+                csv_paths = []
+                for experiment_name, full_path in entries:
+                    experiment_result_dir = os.path.join(plots_dir, experiment_name)
+                    csv_path = os.path.join(experiment_result_dir, protein_name + ".csv")
+                    make_csv = rerun in {"csv", "all"} or not os.path.exists(csv_path)
+
+                    if make_csv:
+                        os.makedirs(experiment_result_dir, exist_ok=True)
+                        previous_console = plot_tmscore.console
+                        with open(os.devnull, "w") as devnull:
+                            try:
+                                plot_tmscore.console = Console(
+                                    file=devnull,
+                                    force_terminal=False,
+                                    color_system=None,
+                                )
+                                plot_tmscore.calc_tm_score_folders(
+                                    protein_name,
+                                    base_repo_path + "/data/" + protein_name + "/references/",
+                                    full_path,
+                                    base_repo_path + "/data/metadata.json",
+                                    protein_name + ".csv",
+                                    experiment_result_dir,
+                                    model,
+                                    seed
+                                )
+                            finally:
+                                plot_tmscore.console = previous_console
+                        stats["csv"] += 1
+
+                    if os.path.exists(csv_path):
+                        csv_paths.append(csv_path)
+
+                if not make_plot:
+                    stats["skipped"] += 1
+                    progress.advance(task)
+                    continue
+
+                if len(csv_paths) < 2:
+                    console.print(
+                        f"  [yellow]warning[/] {protein_name}: only {len(csv_paths)} "
+                        f"experiment CSV(s) available; skipping combined plot."
+                    )
+                    stats["skipped"] += 1
+                    progress.advance(task)
+                    continue
+
+                plot_tmscore.combine_plots(
+                    data_files=csv_paths,
+                    save_file_name=file_name_prefix + protein_name + ".png",
+                    protein=protein_name,
+                    limit_axis=limit_axis,
+                    output_dir=combined_dir,
+                    axis_bounds=axis_bounds,
+                    plot_guidelines=plot_guidelines,
+                    font_size=font_size,
+                    opacity=opacity,
+                    color_on=color_on,
+                    shape_on=shape_on,
+                )
+                stats["plots"] += 1
+            except Exception as e:
+                stats["failed"] += 1
+                failures.append(f"{protein_name}: {e}")
+            finally:
+                progress.advance(task)
+
+    console.print(
+        f"\n[bold green]Combined autoplot complete.[/] "
+        f"CSV: {stats['csv']}, plots: {stats['plots']}, "
+        f"skipped: {stats['skipped']}, failed: {stats['failed']}\n"
+    )
+
+    if failures:
+        console.print("[red bold]Failures:[/]")
+        for failure in failures:
+            console.print(f"  [red]-[/] {failure}")
+
+
 def autoplot_pca(
         result_path,
         base_repo_path,
@@ -382,7 +578,24 @@ if __name__ == "__main__":
     parser.add_argument("--color_on", type=str)
     parser.add_argument("--shape_on", type=str, default=None)
     parser.add_argument("--file_name_prefix", type=str, default="")
-    parser.add_argument("--plot_type", type=str, default="tm")
+    parser.add_argument(
+        "--plot_type",
+        type=str,
+        default="tm",
+        help="tm (per-experiment), tm_combined (overlay experiments per protein), or pca"
+    )
+    parser.add_argument(
+        "--experiments",
+        nargs="+",
+        default=None,
+        help="tm_combined only: experiment folder names to overlay (default: all)"
+    )
+    parser.add_argument(
+        "--combined_label",
+        type=str,
+        default="combined",
+        help="tm_combined only: sub-folder name for the combined outputs"
+    )
 
     args = parser.parse_args()
 
@@ -399,6 +612,24 @@ if __name__ == "__main__":
             model=args.model,
             seed=args.seed,
             color_on=args.color_on,
+            shape_on=args.shape_on,
+            rerun=args.rerun,
+            file_name_prefix=args.file_name_prefix
+        )
+    elif args.plot_type == "tm_combined":
+        autoplot_tmscore_combined(
+            result_path=args.result_path,
+            base_repo_path=args.base_repo_path,
+            experiments=args.experiments,
+            combined_label=args.combined_label,
+            limit_axis=args.limit_axis,
+            axis_bounds=args.axis_bounds,
+            plot_guidelines=args.guidelines,
+            font_size=args.font_size,
+            opacity=args.opacity,
+            model=args.model,
+            seed=args.seed,
+            color_on=args.color_on if args.color_on else "experiment",
             shape_on=args.shape_on,
             rerun=args.rerun,
             file_name_prefix=args.file_name_prefix

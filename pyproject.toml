@@ -11,7 +11,7 @@ dependencies = [
     "ipykernel>=7.2.0",
     "jax[cuda12]>=0.4.26,<0.5; sys_platform == 'linux'",
     "jax>=0.4.26,<0.5; sys_platform != 'linux'",
-    "matplotlib>=3.8.4",
+    "matplotlib>=3.11.0",
     "numpy>=2.0.2",
     "pandas>=2.2.2",
     "pillow>=11.0.0",
