@@ -26,6 +26,23 @@ BASELINE_LOOKUP = {
     "ZnT8":   {"s1": 0.898871, "s2": 0.896885}
 }
 
+MEAN_LOOKUP = {
+    "ASCT2":  {"s1": 0.699060, "s2": 0.871854},
+    "CCR5":   {"s1": 0.976848, "s2": 0.921632},
+    "CGRPR":  {"s1": 0.879535, "s2": 0.939928},
+    "FZD7":   {"s1": 0.925391, "s2": 0.935591},
+    "LAT1":   {"s1": 0.944684, "s2": 0.905509},
+    "MCT1":   {"s1": 0.972060, "s2": 0.804134},
+    "MurJ":   {"s1": 0.962784, "s2": 0.737712},
+    "PTH1R":  {"s1": 0.851181, "s2": 0.938626},
+    "PfMATE": {"s1": 0.731453, "s2": 0.992106},
+    "SERT":   {"s1": 0.910615, "s2": 0.985340},
+    "STP10":  {"s1": 0.913978, "s2": 0.916406},
+    "ZnT8":   {"s1": 0.887613, "s2": 0.884766}
+}
+
+
+
 
 
 def parse_ablation_details(experiment_name, nseq):
@@ -80,7 +97,7 @@ def parse_ablation_details(experiment_name, nseq):
     return "NaN", 0
 
 
-def process_evaluations(data_files: list[str]) -> pd.DataFrame:
+def process_evaluations(data_files: list[str], metric: str = "max") -> pd.DataFrame:
     dfs = []
     has_if_labels = False
     has_ia_labels = False
@@ -141,32 +158,68 @@ def process_evaluations(data_files: list[str]) -> pd.DataFrame:
 
     # Group and aggregate stats, omitting NaN predictions automatically
     group_cols = ["exp_type", "ablation_val", "protein"]
-    stats = df.groupby(group_cols).agg(
-        s1_min=(s1_col, "min"), s1_max=(s1_col, "max"), s1_mean=(s1_col, "mean"),
-        s2_min=(s2_col, "min"), s2_max=(s2_col, "max"), s2_mean=(s2_col, "mean")
-    ).reset_index()
 
-    # Drop any protein aggregates that ended up completely empty (e.g. CCR5, CGRPR)
+    # --- CUSTOM AGGREGATION BASED ON METRIC ---
+    group_cols = ["exp_type", "ablation_val", "protein"]
+    
+    # Define a helper function to grab the mean of the top 5 highest elements
+    def mean_top_5(x):
+        return x.nlargest(5).mean()
+
+    if metric == "max":
+        stats = df.groupby(group_cols).agg(
+            s1_min=(s1_col, "min"), s1_max=(s1_col, "max"), s1_mean=(s1_col, "mean"),
+            s2_min=(s2_col, "min"), s2_max=(s2_col, "max"), s2_mean=(s2_col, "mean")
+        ).reset_index()
+        s1_target_col, s2_target_col = "s1_max", "s2_max"
+    elif metric == "mean":
+        stats = df.groupby(group_cols).agg(
+            s1_min=(s1_col, "min"), s1_max=(s1_col, "max"), s1_mean=(s1_col, "mean"),
+            s2_min=(s2_col, "min"), s2_max=(s2_col, "max"), s2_mean=(s2_col, "mean")
+        ).reset_index()
+        s1_target_col, s2_target_col = "s1_mean", "s2_mean"
+    elif metric == "top_5":
+        stats = df.groupby(group_cols).agg(
+            s1_min=(s1_col, "min"), s1_max=(s1_col, "max"), s1_mean=(s1_col, "mean"), s1_top5=(s1_col, mean_top_5),
+            s2_min=(s2_col, "min"), s2_max=(s2_col, "max"), s2_mean=(s2_col, "mean"), s2_top5=(s2_col, mean_top_5)
+        ).reset_index()
+        s1_target_col, s2_target_col = "s1_top5", "s2_top5"
+
     stats = stats.dropna(subset=["s1_mean", "s2_mean"])
 
-# 1. Isolate the baselines using ONLY the protein name as the unique key
-    # (Assuming every protein has exactly one baseline entry where ablation_val == 0)
-    baselines_df = stats[stats["ablation_val"].astype(str) == "0"].set_index("protein")
+    # stats = df.groupby(group_cols).agg(
+    #     s1_min=(s1_col, "min"), s1_max=(s1_col, "max"), s1_mean=(s1_col, "mean"),
+    #     s2_min=(s2_col, "min"), s2_max=(s2_col, "max"), s2_mean=(s2_col, "mean")
+    # ).reset_index()
 
-    def get_delta(row, state_key):
+    # # Drop any protein aggregates that ended up completely empty (e.g. CCR5, CGRPR)
+    # stats = stats.dropna(subset=["s1_mean", "s2_mean"])
+
+    # # 1. Isolate the baselines using ONLY the protein name as the unique key
+    # # (Assuming every protein has exactly one baseline entry where ablation_val == 0)
+    # baselines_df = stats[stats["ablation_val"].astype(str) == "0"].set_index("protein")
+
+
+
+
+    def get_delta(row, state_key, target_col):
         protein_key = str(row["protein"]).strip()
-        max_col = "s1_max" if state_key == "s1" else "s2_max"
+        #max_col = "s1_max" if state_key == "s1" else "s2_max"
         
         # Pull baseline value directly from hardcoded object dictionary
         if protein_key in BASELINE_LOOKUP:
-            base_max = BASELINE_LOOKUP[protein_key][state_key]
-            return row[max_col] - base_max
+            if metric == "max":
+                base_val = BASELINE_LOOKUP[protein_key][state_key]
+            elif metric == "mean":
+                base_val = MEAN_LOOKUP[protein_key][state_key]
+            else:
+                base_val = 0
+            return row[target_col] - base_val
             
         return 0.0
 
-    stats["s1_delta"] = stats.apply(lambda r: get_delta(r, "s1"), axis=1)
-    stats["s2_delta"] = stats.apply(lambda r: get_delta(r, "s2"), axis=1)
-    
+    stats["s1_delta"] = stats.apply(lambda r: get_delta(r, "s1", s1_target_col), axis=1)
+    stats["s2_delta"] = stats.apply(lambda r: get_delta(r, "s2", s2_target_col), axis=1)
     return stats, (s1_label, s2_label)
 
 def generate_markdown_reports(stats, labels, output_path=None):
@@ -320,6 +373,14 @@ Output Report Columns Dictionary:
         help= "One or more substrings. Completely skip subfolders containing any of these strings."
     )
 
+    parser.add_argument(
+        "--compare",
+        type=str,
+        choices=["max", "mean", "top_5"],
+        default="max",
+        help="Select the metric comparison value to measure against the baseline configuration (max, mean, or top_5)."
+    )
+
     
     args = parser.parse_args()
     
@@ -379,7 +440,7 @@ Output Report Columns Dictionary:
 
         #print(csv_files)
 
-        stats_df, labels = process_evaluations(csv_files)
+        stats_df, labels = process_evaluations(csv_files, metric = args.compare)
 
         
         generate_markdown_reports(stats_df, labels, args.output_md)
