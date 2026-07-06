@@ -51,9 +51,6 @@ def generate_heatmap_from_md(md_file_path: str, output_image_path: str = "ablati
     df["Δ Base State 1 (IF/I)"] = pd.to_numeric(df["Δ Base State 1 (IF/I)"])
     df["Δ Base State 2 (OF/A)"] = pd.to_numeric(df["Δ Base State 2 (OF/A)"])
 
-    # Combine tracking details into Y-Axis condition label
-    df["Condition"] = df["Experiment Type"] + " (Lvl " + df["Ablation Level"].astype(str) + ")"
-
     df.rename(
         columns={
             "Δ Base State 1 (IF/I)": "Delta_State1",
@@ -62,74 +59,97 @@ def generate_heatmap_from_md(md_file_path: str, output_image_path: str = "ablati
         inplace=True,
     )
 
-    # Pivot tracking frames
-    pivot_s1 = df.pivot(index="Condition", columns="Protein", values="Delta_State1")
-    pivot_s2 = df.pivot(index="Condition", columns="Protein", values="Delta_State2")
-
-    # FIX: Re-order index rows to push Baseline to the bottom
-    # Groups numeric depths first (0), pushes Baseline last (1), sorting depths internally.
-    custom_order = sorted(
-        df["Condition"].unique(),
-        key=lambda x: (1 if "Baseline" in x else 0, get_numeric_suffix(x)),
-    )
+    # Separate baseline rows so we can append them cleanly to each experiment block
+    baseline_df = df[df["Experiment Type"].str.lower() == "baseline"].copy()
+    experiment_df = df[df["Experiment Type"].str.lower() != "baseline"].copy()
     
-    pivot_s1 = pivot_s1.reindex(custom_order)
-    pivot_s2 = pivot_s2.reindex(custom_order)
+    unique_experiments = sorted(experiment_df["Experiment Type"].unique())
+    num_experiments = len(unique_experiments)
 
-    # Initialize Plotting Canvas
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 8), sharey=True)
+    if num_experiments == 0:
+        raise ValueError("No distinct experiment types found outside of Baseline rows.")
+
+    # Dynamically scale figure height based on the number of experiment types
+    fig, axes = plt.subplots(num_experiments, 2, figsize=(16, 4 * num_experiments), sharex=True, squeeze=False)
     cmap = "coolwarm"  
 
-    # Balance diverging limits perfectly around delta center point 0.0
+    # Balance diverging colorbar limits perfectly around 0.0
     max_val = max(abs(df["Delta_State1"].max()), abs(df["Delta_State2"].max()))
     vmin, vmax = -max_val, max_val
 
-    # Subplot 1: State 1
-    sns.heatmap(
-        pivot_s1,
-        annot=True,
-        fmt=".3f",
-        cmap=cmap,
-        vmin=vmin,
-        vmax=vmax,
-        ax=ax1,
-        cbar=False,
-        linewidths=0.5,
-        annot_kws={"size": 9}
-    )
-    ax1.set_title("Δ TM-Score: State 1 (IF/I)", fontsize=13, weight="bold", pad=12)
-    ax1.set_xlabel("Protein Target", fontsize=11, labelpad=10)
-    ax1.set_ylabel("Experiment Condition", fontsize=11)
-    ax1.tick_params(axis='x', rotation=45)
+    # Loop through each experiment type to build grouped stacked subplots
+    for idx, exp_type in enumerate(unique_experiments):
+        ax_s1 = axes[idx, 0]
+        ax_s2 = axes[idx, 1]
+        
+        # Pull data for this specific experiment and combine it with baseline rows for comparison
+        exp_data = experiment_df[experiment_df["Experiment Type"] == exp_type].copy()
+        
+        # Inject current experiment's label into baseline copies so they map onto the pivot tables correctly
+        current_baseline = baseline_df.copy()
+        current_baseline["Experiment Type"] = exp_type
+        
+        combined_block = pd.concat([exp_data, current_baseline], ignore_index=True)
+        combined_block["Y_Label"] = "Lvl " + combined_block["Ablation Level"].astype(str)
+        
+        # Force baseline label to look clean at the bottom
+        combined_block.loc[combined_block["Experiment Type"].str.lower() == "baseline", "Y_Label"] = "Baseline"
+        
+        # Build independent pivot metrics for this block
+        pivot_s1 = combined_block.pivot(index="Y_Label", columns="Protein", values="Delta_State1")
+        pivot_s2 = combined_block.pivot(index="Y_Label", columns="Protein", values="Delta_State2")
+        
+        # Ensure proper depth tracking hierarchy (numbers low-to-high, Baseline dead last)
+        custom_order = sorted(
+            combined_block["Y_Label"].unique(),
+            key=lambda x: (1 if "Baseline" in x else 0, get_numeric_suffix(x)),
+        )
+        pivot_s1 = pivot_s1.reindex(custom_order)
+        pivot_s2 = pivot_s2.reindex(custom_order)
 
-    # Subplot 2: State 2
-    sns.heatmap(
-        pivot_s2,
-        annot=True,
-        fmt=".3f",
-        cmap=cmap,
-        vmin=vmin,
-        vmax=vmax,
-        ax=ax2,
-        cbar_kws={"label": "Change Relative to Baseline (Δ)", "pad": 0.03},
-        linewidths=0.5,
-        annot_kws={"size": 9}
-    )
-    ax2.set_title("Δ TM-Score: State 2 (OF/A)", fontsize=13, weight="bold", pad=12)
-    ax2.set_xlabel("Protein Target", fontsize=11, labelpad=10)
-    ax2.set_ylabel("") 
-    ax2.tick_params(axis='x', rotation=45)
+        # Plot State 1 Heatmap
+        sns.heatmap(
+            pivot_s1, annot=True, fmt=".3f", cmap=cmap, vmin=vmin, vmax=vmax,
+            ax=ax_s1, cbar=False, linewidths=0.5, annot_kws={"size": 9}
+        )
+        ax_s1.set_ylabel(exp_type, fontsize=12, weight="bold")
+        
+        # Plot State 2 Heatmap
+        # Only attach a global color bar legend to the very last panel row to save real estate
+        show_cbar = (idx == num_experiments - 1)
+        cbar_kwargs = {"label": "Change Relative to Baseline (Δ)", "pad": 0.03} if show_cbar else {}
+        
+        sns.heatmap(
+            pivot_s2, annot=True, fmt=".3f", cmap=cmap, vmin=vmin, vmax=vmax,
+            ax=ax_s2, cbar=show_cbar, cbar_kws=cbar_kwargs, linewidths=0.5, annot_kws={"size": 9}
+        )
+        ax_s2.set_ylabel("")
+
+        # Add metric section titles above only the topmost row panels
+        if idx == 0:
+            ax_s1.set_title("Δ TM-Score: State 1 (IF/I)", fontsize=13, weight="bold", pad=12)
+            ax_s2.set_title("Δ TM-Score: State 2 (OF/A)", fontsize=13, weight="bold", pad=12)
+
+        # Clean up X-Axis labels for bottom-most rows
+        if idx == num_experiments - 1:
+            ax_s1.set_xlabel("Protein Target", fontsize=11, labelpad=10)
+            ax_s2.set_xlabel("Protein Target", fontsize=11, labelpad=10)
+            ax_s1.tick_params(axis='x', rotation=45)
+            ax_s2.tick_params(axis='x', rotation=45)
+        else:
+            ax_s1.set_xlabel("")
+            ax_s2.set_xlabel("")
 
     plt.tight_layout()
 
     # Save output to disk
     plt.savefig(output_image_path, dpi=300, bbox_inches="tight")
-    print(f"[Success] Heatmap plot (Baseline at bottom) saved to: {output_image_path}")
+    print(f"[Success] Grouped Experiment Heatmap saved to: {output_image_path}")
     plt.show()
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Generate structural delta heatmaps from a Markdown table report.")
+    parser = argparse.ArgumentParser(description="Generate structural delta heatmaps grouped by experiment category.")
     parser.add_argument("-i", "--input_md", type=str, required=True, help="Path to your .md file.")
     parser.add_argument("-o", "--output_png", type=str, default="ablation_delta_heatmap.png", help="Output destination image path.")
     args = parser.parse_args()
@@ -137,7 +157,7 @@ def main():
     try:
         generate_heatmap_from_md(args.input_md, args.output_png)
     except Exception as e:
-        print(f"\n[CRITICAL ERROR] Failed to plot heatmap: {e}")
+        print(f"\n[CRITICAL ERROR] Failed to plot grouped heatmap: {e}")
 
 
 if __name__ == "__main__":
