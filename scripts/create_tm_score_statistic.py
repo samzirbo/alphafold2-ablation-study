@@ -43,13 +43,18 @@ def parse_ablation_details(experiment_name, nseq):
         # We default it to the primary experiment type we are analyzing
         return "Baseline", 0
 
-    # 2. PARSE THE ABLATION LEVEL FROM FOLDER NAME (e.g., 'query_masking_15' -> 15)
+    # 2. PARSE THE ABLATION LEVEL FROM FOLDER NAME (e.g., 'query_masking_15' -> 15, 'query_mask_5_Seed0' -> '5 Seed 0')
     name_clean = exp_str.replace("_", " ").title()
-    # Find the FIRST number in the string (this correctly grabs 5 from 'Query Mask 5 Seed 0')
-    match = re.search(r'(\d+)', name_clean)
+    # Find the FIRST number in the string and capture everything after it
+    match = re.search(r'(\d+.*)', name_clean)
     
     if match:
-        val = int(match.group(1))
+        val_str = match.group(1).strip()
+        # Keep it as an int if it's purely digits, otherwise keep the full string
+        if val_str.isdigit():
+            val = int(val_str)
+        else:
+            val = val_str
         
         # Standardize naming mapping robustly based on keywords
         if "Query" in name_clean:
@@ -146,7 +151,7 @@ def process_evaluations(data_files: list[str]) -> pd.DataFrame:
 
 # 1. Isolate the baselines using ONLY the protein name as the unique key
     # (Assuming every protein has exactly one baseline entry where ablation_val == 0)
-    baselines_df = stats[stats["ablation_val"] == 0].set_index("protein")
+    baselines_df = stats[stats["ablation_val"].astype(str) == "0"].set_index("protein")
 
     def get_delta(row, state_key):
         protein_key = str(row["protein"]).strip()
@@ -172,7 +177,18 @@ def generate_markdown_reports(stats, labels, output_path=None):
 
 
 # Create a unified copy and sort strictly by Protein first
-    unified_report = stats.sort_values(by=["protein", "exp_type", "ablation_val"]).copy()
+    unified_report = stats.copy()
+    
+    # Create a temporary numerical sort key to ensure '5' comes before '15 Seed 0'
+    def extract_num(x):
+        m = re.search(r'(\d+)', str(x))
+        return int(m.group(1)) if m else 0
+
+    unified_report["_ablation_num"] = unified_report["ablation_val"].apply(extract_num)
+    
+    # Sort by protein, then experiment type, then numerically by ablation level, then alphabetically
+    unified_report = unified_report.sort_values(by=["protein", "exp_type", "_ablation_num", "ablation_val"])
+    unified_report = unified_report.drop(columns=["_ablation_num"])
     
     # Arrange and rename columns into a single, cohesive master table
     unified_report.columns = [
