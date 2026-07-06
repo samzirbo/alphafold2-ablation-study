@@ -45,16 +45,27 @@ def parse_ablation_details(experiment_name, nseq):
 
     # 2. PARSE THE ABLATION LEVEL FROM FOLDER NAME (e.g., 'query_masking_15' -> 15)
     name_clean = exp_str.replace("_", " ").title()
-    match = re.search(r'(\d+)\s*%', name_clean) or re.search(r'(\d+)$', name_clean)
+    # Find the FIRST number in the string (this correctly grabs 5 from 'Query Mask 5 Seed 0')
+    match = re.search(r'(\d+)', name_clean)
     
     if match:
         val = int(match.group(1))
-        # Strip the trailing digits to get the clean experiment type
-        exp_type = re.sub(r'\d+\s*%?$', '', name_clean).strip()
         
-        # Standardize naming mapping
-        if "Query" in exp_type:
+        # Standardize naming mapping robustly based on keywords
+        if "Query" in name_clean:
             exp_type = "Query Mask"
+        elif "Row" in name_clean:
+            exp_type = "Row Mask"
+        elif "Col" in name_clean:
+            exp_type = "Col Mask"
+        elif "Depth" in name_clean:
+            exp_type = "Depth"
+        else:
+            # Fallback for unknown patterns: strip from the first digit onwards
+            exp_type = re.sub(r'\d+.*', '', name_clean).strip()
+            if not exp_type:
+                exp_type = "Experiment"
+                
         return exp_type, val
         
     # 3. FALLBACK TO NSEQ IF RUNNING DEPTH EXPERIMENTS
