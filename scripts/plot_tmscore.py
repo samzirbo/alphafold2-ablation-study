@@ -176,16 +176,16 @@ def get_axis_lower_limit(protein: str) -> float:
     return {
         "CGRPR": 0.82,
         "FZD7": 0.85,
-        "PTH1R": 0.82,
-        "ASCT2": 0.6,
+        "PTH1R": 0.75,
+        "ASCT2": 0.5,
         "STP10": 0.8,
         "LAT1": 0.85,
         "ZnT8": 0.73,
-        "MCT1": 0.75,
-        "CCR5": 0.7,
-        "MurJ": 0.7,
-        "PfMATE": 0.7,
-        "SERT": 0.7
+        "MCT1": 0.70,
+        "CCR5": 0.85,
+        "MurJ": 0.65,
+        "PfMATE": 0.65,
+        "SERT": 0.85
     }[protein]
 
 
