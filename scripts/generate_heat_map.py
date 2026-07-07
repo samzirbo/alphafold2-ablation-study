@@ -16,7 +16,7 @@ def get_numeric_suffix(condition_string):
     return int(match.group()) if match else 0
 
 
-def generate_heatmap_from_md(md_file_path: str, output_image_path: str = "ablation_delta_heatmap.png"):
+def generate_heatmap_from_md(md_file_path: str, output_image_path: str = "ablation_delta_heatmap.png", show_annotations: bool = False):
     path = Path(md_file_path)
     if not path.exists():
         raise FileNotFoundError(f"Could not find the specified Markdown report at: {md_file_path}")
@@ -112,9 +112,10 @@ def generate_heatmap_from_md(md_file_path: str, output_image_path: str = "ablati
         pivot_s1 = pivot_s1.reindex(custom_order)
         pivot_s2 = pivot_s2.reindex(custom_order)
 
+
         # Plot State 1 Matrix
         sns.heatmap(
-            pivot_s1, annot=True, fmt=".3f", cmap=cmap, vmin=vmin, vmax=vmax,
+            pivot_s1, annot=show_annotations, fmt=".3f", cmap=cmap, vmin=vmin, vmax=vmax,
             ax=ax_s1, cbar=False, linewidths=0.5, annot_kws={"size": 9}
         )
         ax_s1.set_ylabel(exp_type, fontsize=11, weight="bold")
@@ -124,7 +125,7 @@ def generate_heatmap_from_md(md_file_path: str, output_image_path: str = "ablati
         cbar_kwargs = {"label": "Change Relative to Baseline (Δ)", "pad": 0.03} if show_cbar else {}
         
         sns.heatmap(
-            pivot_s2, annot=True, fmt=".3f", cmap=cmap, vmin=vmin, vmax=vmax,
+            pivot_s2, annot=show_annotations, fmt=".3f", cmap=cmap, vmin=vmin, vmax=vmax,
             ax=ax_s2, cbar=show_cbar, cbar_kws=cbar_kwargs, linewidths=0.5, annot_kws={"size": 9}
         )
         ax_s2.set_ylabel("")
@@ -156,10 +157,11 @@ def main():
     parser = argparse.ArgumentParser(description="Generate structural delta heatmaps grouped by experiment category.")
     parser.add_argument("-i", "--input_md", type=str, required=True, help="Path to your .md file.")
     parser.add_argument("-o", "--output_png", type=str, default="ablation_delta_heatmap.png", help="Output destination image path.")
+    parser.add_argument("-sa", "--show_annot", action="store_false", help="Show numerical text annotations inside the heatmap cells.")
     args = parser.parse_args()
 
     try:
-        generate_heatmap_from_md(args.input_md, args.output_png)
+        generate_heatmap_from_md(args.input_md, args.output_png, show_annotations = not args.show_annot)
     except Exception as e:
         print(f"\n[CRITICAL ERROR] Failed to plot grouped heatmap: {e}")
 
