@@ -16,7 +16,7 @@ def get_numeric_suffix(condition_string):
     return int(match.group()) if match else 0
 
 
-def generate_heatmap_from_md(md_file_path: str, output_image_path: str = "ablation_delta_heatmap.png", show_annotations: bool = True):
+def generate_heatmap_from_md(md_file_path: str, output_image_path: str = "ablation_delta_heatmap.png", show_annotations: bool = True, vmin: float = -0.2, vmax: float = 0.2):
     path = Path(md_file_path)
     if not path.exists():
         raise FileNotFoundError(f"Could not find the specified Markdown report at: {md_file_path}")
@@ -71,10 +71,10 @@ def generate_heatmap_from_md(md_file_path: str, output_image_path: str = "ablati
     cmap = "coolwarm"  
 
     # Establish global symmetric bounds centered at 0.0
-    max_val = max(df["Delta_State1"].abs().max(), df["Delta_State2"].abs().max())
-    if pd.isna(max_val) or max_val == 0:
-        max_val = 1.0  
-    vmin, vmax = -max_val, max_val
+    # max_val = max(df["Delta_State1"].abs().max(), df["Delta_State2"].abs().max())
+    # if pd.isna(max_val) or max_val == 0:
+    #     max_val = 1.0  
+    # vmin, vmax = -max_val, max_val
 
     output_path_obj = Path(output_image_path)
 
@@ -142,7 +142,7 @@ def generate_heatmap_from_md(md_file_path: str, output_image_path: str = "ablati
             # Format Colorbar text
             cbar = ax.collections[0].colorbar
             cbar.ax.tick_params(labelsize=12)
-            cbar.set_label("Change Relative to Baseline (Δ)", fontsize=14, weight="bold")
+            cbar.set_label("Absolute Change to Baseline (Δ)", fontsize=14, weight="bold")
 
             # Structural Label Adjustments
             ax.set_ylabel(exp_type, fontsize=Y_AXIS_FONT_SIZE, weight="bold")
@@ -169,10 +169,15 @@ def main():
     parser.add_argument("-i", "--input_md", type=str, required=True, help="Path to your .md file.")
     parser.add_argument("-o", "--output_png", type=str, default="ablation_delta_heatmap.png", help="Output destination image path.")
     parser.add_argument("-sa", "--show_annot", action="store_false", help="Show numerical text annotations inside the heatmap cells.")
+    
+    parser.add_argument("--vmin", type=float, default=-0.2, help="Fixed minimum value for heatmap color scale.")
+    parser.add_argument("--vmax", type=float, default=0.2, help="Fixed maximum value for heatmap color scale.")
+    
     args = parser.parse_args()
 
     try:
-        generate_heatmap_from_md(args.input_md, args.output_png, show_annotations = not args.show_annot)
+        generate_heatmap_from_md(args.input_md, args.output_png, show_annotations = not args.show_annot, vmin=args.vmin, 
+            vmax=args.vmax)
     except Exception as e:
         print(f"\n[CRITICAL ERROR] Failed to plot grouped heatmap: {e}")
 
