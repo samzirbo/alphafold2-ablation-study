@@ -48,32 +48,30 @@ MEAN_LOOKUP = {
 def parse_ablation_details(experiment_name, nseq):
     """
     Improved parser that links the baseline folder directly to your 
-    ablation experiment types to ensure groups and deltas compute correctly.
+    ablation experiment types, extracts seeds, and keeps ablation levels numeric.
     """
-    # Convert to string and handle standard edge cases
     exp_str = str(experiment_name).strip()
     
     # 1. CATCH THE BASELINE / CONTROL FOLDER
-    # Adjust these strings if your baseline directory is named differently
-
     if exp_str.lower() in ["base_case", "control", "baseline", "nan", "no experiment type"]:
-        # We default it to the primary experiment type we are analyzing
-        return "Baseline", 0
+        return "Baseline", 0, "Seed0"  # Default seed for baseline
 
-    # 2. PARSE THE ABLATION LEVEL FROM FOLDER NAME (e.g., 'query_masking_15' -> 15, 'query_mask_5_Seed0' -> '5 Seed 0')
     name_clean = exp_str.replace("_", " ").title()
-    # Find the FIRST number in the string and capture everything after it
-    match = re.search(r'(\d+.*)', name_clean)
+    
+    # Extract Seed if present (e.g., "Seed 0" or "Seed0" or "Seed1")
+    seed_match = re.search(r'Seed\s*(\d+)', name_clean, re.IGNORECASE)
+    seed = f"Seed{seed_match.group(1)}" if seed_match else "Seed0"
+    
+    # Remove seed noise to parse the ablation value cleanly
+    name_no_seed = re.sub(r'Seed\s*\d+', '', name_clean, flags=re.IGNORECASE).strip()
+
+    # Find the FIRST number in the string (this is your clean ablation level)
+    match = re.search(r'(\d+)', name_no_seed)
     
     if match:
-        val_str = match.group(1).strip()
-        # Keep it as an int if it's purely digits, otherwise keep the full string
-        if val_str.isdigit():
-            val = int(val_str)
-        else:
-            val = val_str
+        val = int(match.group(1)) # Keep it strictly as an integer for math/sorting
         
-        # Standardize naming mapping robustly based on keywords
+        # Standardize naming mapping
         if "Query" in name_clean:
             exp_type = "Query Mask"
         elif "Row" in name_clean:
@@ -83,21 +81,20 @@ def parse_ablation_details(experiment_name, nseq):
         elif "Depth" in name_clean:
             exp_type = "Depth"
         else:
-            # Fallback for unknown patterns: strip from the first digit onwards
-            exp_type = re.sub(r'\d+.*', '', name_clean).strip()
+            exp_type = re.sub(r'\d+.*', '', name_no_seed).strip()
             if not exp_type:
                 exp_type = "Experiment"
                 
-        return exp_type, val
+        return exp_type, val, seed
         
     # 3. FALLBACK TO NSEQ IF RUNNING DEPTH EXPERIMENTS
     if "Depth" in name_clean or nseq != 5120:
-        return "MSA Depth Reduction", int(nseq)
+        return "MSA Depth Reduction", int(nseq), seed
         
-    return "NaN", 0
+    return "NaN", 0, seed
 
 
-def process_evaluations(data_files: list[str], metric: str = "max") -> pd.DataFrame:
+def process_evaluations(data_files: list[str], metric: str = "max", top_k: int = 5) -> pd.DataFrame:
     dfs = []
     has_if_labels = False
     has_ia_labels = False
@@ -155,16 +152,18 @@ def process_evaluations(data_files: list[str], metric: str = "max") -> pd.DataFr
     parsed = df.apply(lambda row: parse_ablation_details(row["experiment"], row["nseq"]), axis=1)
     df["exp_type"] = [p[0] for p in parsed]
     df["ablation_val"] = [p[1] for p in parsed]
+    df["seed"] = [p[2] for p in parsed] # capture seed here
+
 
     # Group and aggregate stats, omitting NaN predictions automatically
-    group_cols = ["exp_type", "ablation_val", "protein"]
+    group_cols = ["exp_type", "ablation_val", "seed", "protein"]
 
     # --- CUSTOM AGGREGATION BASED ON METRIC ---
     group_cols = ["exp_type", "ablation_val", "protein"]
     
-    # Define a helper function to grab the mean of the top 5 highest elements
-    def mean_top_5(x):
-        return x.nlargest(5).mean()
+    # Define a helper function to grab the mean of the top k highest elements
+    def mean_top_k(x):
+        return x.nlargest(top_k).mean()
 
     if metric == "max":
         stats = df.groupby(group_cols).agg(
@@ -178,7 +177,7 @@ def process_evaluations(data_files: list[str], metric: str = "max") -> pd.DataFr
             s2_min=(s2_col, "min"), s2_max=(s2_col, "max"), s2_mean=(s2_col, "mean")
         ).reset_index()
         s1_target_col, s2_target_col = "s1_mean", "s2_mean"
-    elif metric == "top_5":
+    elif metric == "top_k":
         stats = df.groupby(group_cols).agg(
             s1_min=(s1_col, "min"), s1_max=(s1_col, "max"), s1_mean=(s1_col, "mean"), s1_top5=(s1_col, mean_top_5),
             s2_min=(s2_col, "min"), s2_max=(s2_col, "max"), s2_mean=(s2_col, "mean"), s2_top5=(s2_col, mean_top_5)
@@ -212,14 +211,20 @@ def process_evaluations(data_files: list[str], metric: str = "max") -> pd.DataFr
                 base_val = BASELINE_LOOKUP[protein_key][state_key]
             elif metric == "mean":
                 base_val = MEAN_LOOKUP[protein_key][state_key]
+            elif metric == "top_5":
+                # FIX: Subtract the Max baseline from your Top 5 score
+                base_val = BASELINE_LOOKUP[protein_key][state_key]
             else:
-                base_val = 0
+                base_val = 0.1
             return row[target_col] - base_val
             
         return 0.0
 
     stats["s1_delta"] = stats.apply(lambda r: get_delta(r, "s1", s1_target_col), axis=1)
     stats["s2_delta"] = stats.apply(lambda r: get_delta(r, "s2", s2_target_col), axis=1)
+
+    if metric == "top_5":
+        stats = stats.drop(columns=["s1_top5", "s2_top5"])
     return stats, (s1_label, s2_label)
 
 def generate_markdown_reports(stats, labels, output_path=None):
@@ -228,32 +233,22 @@ def generate_markdown_reports(stats, labels, output_path=None):
     
     report_str.append("# Automated Ablation Experiment Evaluation Report\n")
 
-
-# Create a unified copy and sort strictly by Protein first
     unified_report = stats.copy()
     
-    # Create a temporary numerical sort key to ensure '5' comes before '15 Seed 0'
-    def extract_num(x):
-        m = re.search(r'(\d+)', str(x))
-        return int(m.group(1)) if m else 0
-
-    unified_report["_ablation_num"] = unified_report["ablation_val"].apply(extract_num)
-    
-    # Sort by protein, then experiment type, then numerically by ablation level, then alphabetically
-    unified_report = unified_report.sort_values(by=["protein", "exp_type", "_ablation_num", "ablation_val"])
-    unified_report = unified_report.drop(columns=["_ablation_num"])
+    # Sort by protein, then experiment, then seed, then numerically by ablation level
+    unified_report = unified_report.sort_values(by=["protein", "exp_type", "seed", "ablation_val"])
     
     # Arrange and rename columns into a single, cohesive master table
     unified_report.columns = [
-        "Experiment Type", "Ablation Level", "Protein",
+        "Experiment Type", "Ablation Level", "Seed", "Protein",
         f"Min {s1_lbl}", f"Max {s1_lbl}", f"Mean {s1_lbl}",
         f"Min {s2_lbl}", f"Max {s2_lbl}", f"Mean {s2_lbl}",
         f"Δ Base {s1_lbl}", f"Δ Base {s2_lbl}"
     ]
     
-    # Reorder columns to put 'Protein' upfront as the primary anchor
+    # Reorder columns to put 'Protein' and 'Seed' upfront
     column_order = [
-        "Protein", "Experiment Type", "Ablation Level",
+        "Protein", "Experiment Type", "Ablation Level", "Seed",
         f"Min {s1_lbl}", f"Max {s1_lbl}", f"Mean {s1_lbl}", f"Δ Base {s1_lbl}",
         f"Min {s2_lbl}", f"Max {s2_lbl}", f"Mean {s2_lbl}", f"Δ Base {s2_lbl}"
     ]
@@ -269,7 +264,6 @@ def generate_markdown_reports(stats, labels, output_path=None):
         print(f"[Success] Unified report saved to: {output_path}")
     else:
         print(final_output)
-
   
 
 
@@ -376,10 +370,17 @@ Output Report Columns Dictionary:
     parser.add_argument(
         "--compare",
         type=str,
-        choices=["max", "mean", "top_5"],
+        choices=["max", "mean", "top_k"],
         default="max",
-        help="Select the metric comparison value to measure against the baseline configuration (max, mean, or top_5)."
+        help="Select the metric comparison value to measure against the baseline configuration (max, mean, or top_k)."
     )
+    parser.add_argument(
+        "-k", "--top_k",
+        type=int,
+        default=5,
+        help="The 'k' value to use when executing '--compare top_k' evaluations. Defaults to 5."
+    )
+
 
     
     args = parser.parse_args()
