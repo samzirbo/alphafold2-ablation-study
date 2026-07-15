@@ -43,8 +43,8 @@ MEAN_LOOKUP = {
 
 def parse_ablation_details(experiment_name, nseq):
     """
-    Improved parser that links the baseline folder directly to your 
-    ablation experiment types, extracts seeds, and keeps ablation levels numeric.
+    Robust parser that extracts seeds and keeps ablation levels numeric.
+    Guaranteed to return a 3-tuple (exp_type, val, seed) on all code paths.
     """
     exp_str = str(experiment_name).strip()
     
@@ -101,16 +101,14 @@ def process_evaluations(data_files: list[str], metric: str = "max", top_k: int =
             if df.empty:
                 continue
 
+            # Force parse_ablation_details to look at the FOLDER name, not the internal CSV column
             subfolder_name = Path(f).parent.name
-            if "experiment" not in df.columns or df["experiment"].dropna().empty:
-                df["experiment"] = subfolder_name
+            df["folder_experiment"] = subfolder_name
 
             if "protein" not in df.columns or df["protein"].dropna().empty:
-                print(f"[WARNING] Missing 'protein' header in file: '{f}'")
-                print(f"          -> Fallback applied: Assigning protein tracking label as '{subfolder_name}'\n")
                 df["protein"] = subfolder_name
 
-            # Fix: Standardize headers per file BEFORE pd.concat (mapping both raw and highscores)
+            # Standardize headers per file before concatenating
             if "tm_IF" in df.columns:
                 df = df.rename(columns={"tm_IF": "state_1", "tm_OF": "state_2"})
                 has_if_labels = True
@@ -121,12 +119,7 @@ def process_evaluations(data_files: list[str], metric: str = "max", top_k: int =
                 df = df.rename(columns={"tm_I": "state_1", "tm_A": "state_2"})
                 has_ia_labels = True
             else:
-                available_cols = list(df.columns)
-                print(f"[WARNING] Dropping file: '{f}'")
-                print(f"          Reason: Could not find expected TM structural headers.")
-                print(f"          Found columns: {available_cols}")
-                print(f"          Expected: ['tm_IF', 'tm_OF'] OR ['tm_I', 'tm_A']\n")
-                continue # Skip unknown file formats safely
+                continue # Skip unknown file formats
 
             dfs.append(df)
         except Exception:
@@ -146,11 +139,17 @@ def process_evaluations(data_files: list[str], metric: str = "max", top_k: int =
 
     s1_col, s2_col = "state_1", "state_2"
 
-    # Apply the corrected parsing function (returning 3 values: type, value, seed)
-    parsed = df.apply(lambda row: parse_ablation_details(row["experiment"], row["nseq"]), axis=1)
+    # Use 'folder_experiment' instead of 'experiment' to ensure Seed is never ignored
+    parsed = df.apply(lambda row: parse_ablation_details(row["folder_experiment"], row["nseq"]), axis=1)
     df["exp_type"] = [p[0] for p in parsed]
     df["ablation_val"] = [p[1] for p in parsed]
-    df["seed"] = [p[2] for p in parsed]  # <--- CRITICAL: Populates seed column
+    df["seed"] = [p[2] for p in parsed]
+
+    # --- DEBUGGING PRINTS ---
+    print("\n" + "-"*50)
+    print("[DIAGNOSTIC] Successfully parsed unique combinations:")
+    print(df[["folder_experiment", "exp_type", "ablation_val", "seed"]].drop_duplicates().to_string(index=False))
+    print("-"*50 + "\n")
 
     # Group and aggregate stats, including seed in grouping keys
     group_cols = ["exp_type", "ablation_val", "seed", "protein"]
@@ -209,10 +208,10 @@ def generate_markdown_reports(stats, labels, output_path=None):
 
     unified_report = stats.copy()
     
-    # 1. SORT FIRST using original lowercase pandas column names
+    # Sort strictly using the lowercase column names
     unified_report = unified_report.sort_values(by=["protein", "exp_type", "seed", "ablation_val"])
     
-    # 2. RENAME SECOND
+    # Rename columns to formatted presentation styles
     unified_report.columns = [
         "Experiment Type", "Ablation Level", "Seed", "Protein",
         f"Min {s1_lbl}", f"Max {s1_lbl}", f"Mean {s1_lbl}",
@@ -220,7 +219,7 @@ def generate_markdown_reports(stats, labels, output_path=None):
         f"Δ Base {s1_lbl}", f"Δ Base {s2_lbl}"
     ]
     
-    # 3. REORDER COLUMNS using new names
+    # Reorder structure
     column_order = [
         "Protein", "Experiment Type", "Ablation Level", "Seed",
         f"Min {s1_lbl}", f"Max {s1_lbl}", f"Mean {s1_lbl}", f"Δ Base {s1_lbl}",
@@ -228,9 +227,7 @@ def generate_markdown_reports(stats, labels, output_path=None):
     ]
     unified_report = unified_report[column_order]
     
-    # Convert to markdown layout
     report_str.append(unified_report.to_markdown(index=False, floatfmt=".3f"))
-    
     final_output = "\n".join(report_str)
     
     if output_path:
