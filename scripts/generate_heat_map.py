@@ -47,17 +47,27 @@ def generate_heatmap_from_md(md_file_path: str, output_image_path: str = "ablati
         if df[col].dtype == "object":
             df[col] = df[col].str.strip()
             
+    # Standardize column parsing
     df["Ablation Level"] = pd.to_numeric(df["Ablation Level"], errors='coerce')
-    df["Δ Base State 1 (IF/I)"] = pd.to_numeric(df["Δ Base State 1 (IF/I)"], errors='coerce')
-    df["Δ Base State 2 (OF/A)"] = pd.to_numeric(df["Δ Base State 2 (OF/A)"], errors='coerce')
+    
+    # Check if 'Seed' column exists (Markdown column names might vary)
+    seed_col = None
+    for col in df.columns:
+        if col.lower() == 'seed':
+            seed_col = col
+            break
+            
+    if seed_col is None:
+        print("[Info] No 'Seed' column detected. Visualizing as single seed dataset.")
+        df["Seed"] = "Seed0"
+        seed_col = "Seed"
 
-    df.rename(
-        columns={
-            "Δ Base State 1 (IF/I)": "Delta_State1",
-            "Δ Base State 2 (OF/A)": "Delta_State2",
-        },
-        inplace=True,
-    )
+    # Identify the dynamic column names for Delta States
+    s1_col = [c for c in df.columns if "Δ Base" in c and any(sub in c for sub in ["State 1", "Inward", "Inactive"])][0]
+    s2_col = [c for c in df.columns if "Δ Base" in c and any(sub in c for sub in ["State 2", "Outward", "Active"])][0]
+
+    df["Delta_State1"] = pd.to_numeric(df[s1_col], errors='coerce')
+    df["Delta_State2"] = pd.to_numeric(df[s2_col], errors='coerce')
 
     baseline_mask = df["Experiment Type"].str.lower() == "baseline"
     baseline_df = df[baseline_mask].copy()
@@ -69,98 +79,123 @@ def generate_heatmap_from_md(md_file_path: str, output_image_path: str = "ablati
         raise ValueError("No distinct experiment types found outside of Baseline rows.")
 
     cmap = "coolwarm"  
-
-    # Establish global symmetric bounds centered at 0.0
-    # max_val = max(df["Delta_State1"].abs().max(), df["Delta_State2"].abs().max())
-    # if pd.isna(max_val) or max_val == 0:
-    #     max_val = 1.0  
-    # vmin, vmax = -max_val, max_val
-
     output_path_obj = Path(output_image_path)
 
-    # Global Font Size Variables
-    TITLE_FONT_SIZE = 16
-    X_AXIS_FONT_SIZE = 20  
-    Y_AXIS_FONT_SIZE = 20 
-    PROTEIN_FONT_SIZE = 15
-    ABLATION_FONT_SIZE = 15
+    # Styling constants
+    TITLE_FONT_SIZE = 14
+    X_AXIS_FONT_SIZE = 14  
+    Y_AXIS_FONT_SIZE = 14 
+    PROTEIN_FONT_SIZE = 11
+    ABLATION_FONT_SIZE = 11
 
     for exp_type in unique_experiments:
-        # Extract experiment rows
+        # Extract specific experiment data
         exp_data = experiment_df[experiment_df["Experiment Type"] == exp_type].copy()
-        if exp_type == "Depth":
-            exp_data["Y_Label"] = exp_data["Ablation Level"].astype(int, errors='ignore').astype(str)
-        else: 
-            exp_data["Y_Label"] = exp_data["Ablation Level"].astype(int, errors='ignore').astype(str) + "%"
         
-        # Mirror the baseline records
+        # Determine labels for rows
+        exp_data["Y_Label"] = exp_data["Ablation Level"].astype(int, errors='ignore').astype(str)
+        if exp_type != "Depth":
+            exp_data["Y_Label"] = exp_data["Y_Label"] + "%"
+        
+        # Mirror baseline metrics across seeds
         current_baseline = baseline_df.copy()
         current_baseline["Experiment Type"] = exp_type
         current_baseline["Y_Label"] = "Baseline"
         
+        # Replicate baseline across all unique seeds present in exp_data to prevent NaN gaps
+        unique_seeds = exp_data[seed_col].unique()
+        baseline_replicated = []
+        for s in unique_seeds:
+            b_temp = current_baseline.copy()
+            b_temp[seed_col] = s
+            baseline_replicated.append(b_temp)
+            
+        if baseline_replicated:
+            current_baseline = pd.concat(baseline_replicated, ignore_index=True)
+        
         combined_block = pd.concat([exp_data, current_baseline], ignore_index=True)
         
-        pivot_s1 = combined_block.pivot_index_or_values(index="Y_Label", columns="Protein", values="Delta_State1") if hasattr(combined_block, 'pivot_index_or_values') else combined_block.pivot(index="Y_Label", columns="Protein", values="Delta_State1")
-        pivot_s2 = combined_block.pivot(index="Y_Label", columns="Protein", values="Delta_State2")
-        
+        # Build clean numerical index ordering
         custom_order = sorted(
             combined_block["Y_Label"].unique(),
             key=lambda x: (1 if "Baseline" in str(x) else 0, get_numeric_suffix(x)),
         )
-        pivot_s1 = pivot_s1.reindex(custom_order)
-        pivot_s2 = pivot_s2.reindex(custom_order)
 
-        # Sanitize filename string
-        clean_exp_name = re.sub(r'[^a-zA-Z0-9_\-]', '_', exp_type)
-        
-        # Helper dictionary to dynamically handle both state conditions cleanly
         states_config = {
             "State1": {
-                "data": pivot_s1,
-                "title": "Δ TM-Score: State 1 (IF/I)",
-                "suffix": f"{clean_exp_name}_State1"
+                "val_col": "Delta_State1",
+                "title": f"{exp_type} - Δ TM-Score: State 1 (IF/I)",
+                "suffix": f"{re.sub(r'[^a-zA-Z0-9_\-]', '_', exp_type)}_State1"
             },
             "State2": {
-                "data": pivot_s2,
-                "title": "Δ TM-Score: State 2 (OF/A)",
-                "suffix": f"{clean_exp_name}_State2"
+                "val_col": "Delta_State2",
+                "title": f"{exp_type} - Δ TM-Score: State 2 (OF/A)",
+                "suffix": f"{re.sub(r'[^a-zA-Z0-9_\-]', '_', exp_type)}_State2"
             }
         }
 
-        # --- PROCESS AND GENERATE EACH GRAPH SEPARATELY ---
+        # --- PROCESS SEPARATELY ---
         for state_key, cfg in states_config.items():
-            # Standard independent figure dimensions (scaled nicely for 1 matrix + colorbar)
-            fig, ax = plt.subplots(figsize=(8.5, 5))
+            num_seeds = len(unique_seeds)
             
-            # Draw heatmap (both get their own colorbar now since they are solo graphs)
-            cbar_kwargs = {"label": "Absolute Change to Baseline (Δ)", "pad": 0.03}
-            sns.heatmap(
-                cfg["data"], annot=show_annotations, fmt=".3f", cmap=cmap, vmin=vmin, vmax=vmax,
-                ax=ax, cbar=True, cbar_kws=cbar_kwargs, linewidths=0.5, annot_kws={"size": 9}
-            )
-            
-            # Format Colorbar text
-            cbar = ax.collections[0].colorbar
-            cbar.ax.tick_params(labelsize=12)
-            cbar.set_label("Absolute Change to Baseline (Δ)", fontsize=14, weight="bold")
+            if num_seeds > 1:
+                # MULTI-SEED FACETED GRID: Row = Ablation levels, Col = Seeds
+                fig, axes = plt.subplots(1, num_seeds, figsize=(6 * num_seeds, 5.5), sharey=True)
+                if num_seeds == 1:
+                    axes = [axes]
+                
+                # Sort seed list systematically (Seed0, Seed1, Seed2...)
+                sorted_seeds = sorted(list(unique_seeds), key=lambda x: get_numeric_suffix(x))
+                
+                for idx, seed in enumerate(sorted_seeds):
+                    ax = axes[idx]
+                    seed_block = combined_block[combined_block[seed_col] == seed]
+                    
+                    # Pivot and reindex to align structured layout
+                    pivot_data = seed_block.pivot(index="Y_Label", columns="Protein", values=cfg["val_col"])
+                    pivot_data = pivot_data.reindex(custom_order)
+                    
+                    # Only show colorbar on the last plot panel to save real estate
+                    is_last = (idx == num_seeds - 1)
+                    sns.heatmap(
+                        pivot_data, annot=show_annotations, fmt=".3f", cmap=cmap, vmin=vmin, vmax=vmax,
+                        ax=ax, cbar=is_last, cbar_kws={"label": "Δ Base Score" if is_last else ""},
+                        linewidths=0.5, annot_kws={"size": 8}
+                    )
+                    
+                    ax.set_title(f"{seed}", fontsize=TITLE_FONT_SIZE, weight="bold")
+                    ax.set_xlabel("Protein Target", fontsize=X_AXIS_FONT_SIZE)
+                    plt.setp(ax.get_xticklabels(), rotation=45, ha="right", fontsize=PROTEIN_FONT_SIZE)
+                    
+                    if idx == 0:
+                        ax.set_ylabel(exp_type, fontsize=Y_AXIS_FONT_SIZE, weight="bold")
+                        plt.setp(ax.get_yticklabels(), fontsize=ABLATION_FONT_SIZE)
+                    else:
+                        ax.set_ylabel("")
+                
+                fig.suptitle(cfg["title"], fontsize=TITLE_FONT_SIZE + 2, weight="bold", y=1.02)
+                
+            else:
+                # SINGLE SEED FALLBACK (Original Layout)
+                fig, ax = plt.subplots(figsize=(8.5, 5))
+                pivot_data = combined_block.pivot(index="Y_Label", columns="Protein", values=cfg["val_col"])
+                pivot_data = pivot_data.reindex(custom_order)
+                
+                sns.heatmap(
+                    pivot_data, annot=show_annotations, fmt=".3f", cmap=cmap, vmin=vmin, vmax=vmax,
+                    ax=ax, cbar=True, cbar_kws={"label": "Absolute Change to Baseline (Δ)"},
+                    linewidths=0.5, annot_kws={"size": 9}
+                )
+                
+                ax.set_ylabel(exp_type, fontsize=Y_AXIS_FONT_SIZE, weight="bold")
+                ax.set_xlabel("Protein Target", fontsize=X_AXIS_FONT_SIZE, labelpad=10)
+                ax.set_title(cfg["title"], fontsize=TITLE_FONT_SIZE, weight="bold", pad=12)
+                plt.setp(ax.get_xticklabels(), rotation=45, ha="right", fontsize=PROTEIN_FONT_SIZE)
+                plt.setp(ax.get_yticklabels(), fontsize=ABLATION_FONT_SIZE)
 
-            # Structural Label Adjustments
-            ax.set_ylabel(exp_type, fontsize=Y_AXIS_FONT_SIZE, weight="bold")
-            ax.set_xlabel("Protein Target", fontsize=X_AXIS_FONT_SIZE, labelpad=10)
-            ax.set_title(cfg["title"], fontsize=TITLE_FONT_SIZE, weight="bold", pad=12)
-            
-            # Tick Text Properties
-            plt.setp(ax.get_xticklabels(), rotation=45, ha="right", fontsize=PROTEIN_FONT_SIZE)
-            plt.setp(ax.get_yticklabels(), fontsize=ABLATION_FONT_SIZE)
-
-            # Build individual path (e.g. baseline_heatmap_Mutation_X_State1.png)
             state_output_path = output_path_obj.parent / f"{output_path_obj.stem}_{cfg['suffix']}{output_path_obj.suffix}"
-            
-            plt.tight_layout()
             plt.savefig(state_output_path, dpi=300, bbox_inches="tight")
-            print(f"[Success] Saved standalone state graphic to: {state_output_path}")
-            
-            # Drop current figure from execution stack memory
+            print(f"[Success] Saved seed-aware delta graphic: {state_output_path}")
             plt.close(fig)
 
 
@@ -169,17 +204,19 @@ def main():
     parser.add_argument("-i", "--input_md", type=str, required=True, help="Path to your .md file.")
     parser.add_argument("-o", "--output_png", type=str, default="ablation_delta_heatmap.png", help="Output destination image path.")
     parser.add_argument("-sa", "--show_annot", action="store_false", help="Show numerical text annotations inside the heatmap cells.")
-    
     parser.add_argument("--vmin", type=float, default=-0.2, help="Fixed minimum value for heatmap color scale.")
     parser.add_argument("--vmax", type=float, default=0.2, help="Fixed maximum value for heatmap color scale.")
     
     args = parser.parse_args()
 
     try:
-        generate_heatmap_from_md(args.input_md, args.output_png, show_annotations = not args.show_annot, vmin=args.vmin, 
-            vmax=args.vmax)
+        generate_heatmap_from_md(
+            args.input_md, args.output_png, show_annotations=not args.show_annot, 
+            vmin=args.vmin, vmax=args.vmax
+        )
     except Exception as e:
         print(f"\n[CRITICAL ERROR] Failed to plot grouped heatmap: {e}")
+        traceback.print_exc()
 
 
 if __name__ == "__main__":
