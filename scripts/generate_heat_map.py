@@ -5,6 +5,7 @@ import re
 import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
+import traceback
 
 
 def get_numeric_suffix(condition_string):
@@ -50,7 +51,7 @@ def generate_heatmap_from_md(md_file_path: str, output_image_path: str = "ablati
     # Standardize column parsing
     df["Ablation Level"] = pd.to_numeric(df["Ablation Level"], errors='coerce')
     
-    # Check if 'Seed' column exists (Markdown column names might vary)
+    # Check if 'Seed' column exists
     seed_col = None
     for col in df.columns:
         if col.lower() == 'seed':
@@ -62,7 +63,7 @@ def generate_heatmap_from_md(md_file_path: str, output_image_path: str = "ablati
         df["Seed"] = "Seed0"
         seed_col = "Seed"
 
-    # Identify the dynamic column names for Delta States
+    # Identify dynamic column names for Delta States
     s1_col = [c for c in df.columns if "Δ Base" in c and any(sub in c for sub in ["State 1", "Inward", "Inactive"])][0]
     s2_col = [c for c in df.columns if "Δ Base" in c and any(sub in c for sub in ["State 2", "Outward", "Active"])][0]
 
@@ -97,21 +98,20 @@ def generate_heatmap_from_md(md_file_path: str, output_image_path: str = "ablati
         if exp_type != "Depth":
             exp_data["Y_Label"] = exp_data["Y_Label"] + "%"
         
-        # Mirror baseline metrics across seeds
-        current_baseline = baseline_df.copy()
-        current_baseline["Experiment Type"] = exp_type
-        current_baseline["Y_Label"] = "Baseline"
-        
-        # Replicate baseline across all unique seeds present in exp_data to prevent NaN gaps
+        # Replicate baseline metrics across all unique seeds present in exp_data
         unique_seeds = exp_data[seed_col].unique()
         baseline_replicated = []
         for s in unique_seeds:
-            b_temp = current_baseline.copy()
+            b_temp = baseline_df.copy()
+            b_temp["Experiment Type"] = exp_type
+            b_temp["Y_Label"] = "Baseline"
             b_temp[seed_col] = s
             baseline_replicated.append(b_temp)
             
         if baseline_replicated:
             current_baseline = pd.concat(baseline_replicated, ignore_index=True)
+        else:
+            current_baseline = pd.DataFrame()
         
         combined_block = pd.concat([exp_data, current_baseline], ignore_index=True)
         
@@ -124,62 +124,30 @@ def generate_heatmap_from_md(md_file_path: str, output_image_path: str = "ablati
         states_config = {
             "State1": {
                 "val_col": "Delta_State1",
-                "title": f"{exp_type} - Δ TM-Score: State 1 (IF/I)",
+                "title": f"Δ TM-Score: State 1 (IF/I)",
                 "suffix": f"{re.sub(r'[^a-zA-Z0-9_\-]', '_', exp_type)}_State1"
             },
             "State2": {
                 "val_col": "Delta_State2",
-                "title": f"{exp_type} - Δ TM-Score: State 2 (OF/A)",
+                "title": f"Δ TM-Score: State 2 (OF/A)",
                 "suffix": f"{re.sub(r'[^a-zA-Z0-9_\-]', '_', exp_type)}_State2"
             }
         }
 
-        # --- PROCESS SEPARATELY ---
+        # --- PROCESS SEPARATELY FOR EACH STATE AND SEED ---
+        sorted_seeds = sorted(list(unique_seeds), key=lambda x: get_numeric_suffix(x))
+
         for state_key, cfg in states_config.items():
-            num_seeds = len(unique_seeds)
-            
-            if num_seeds > 1:
-                # MULTI-SEED FACETED GRID: Row = Ablation levels, Col = Seeds
-                fig, axes = plt.subplots(1, num_seeds, figsize=(6 * num_seeds, 5.5), sharey=True)
-                if num_seeds == 1:
-                    axes = [axes]
+            for seed in sorted_seeds:
+                # Isolate data for this specific seed
+                seed_block = combined_block[combined_block[seed_col] == seed]
                 
-                # Sort seed list systematically (Seed0, Seed1, Seed2...)
-                sorted_seeds = sorted(list(unique_seeds), key=lambda x: get_numeric_suffix(x))
-                
-                for idx, seed in enumerate(sorted_seeds):
-                    ax = axes[idx]
-                    seed_block = combined_block[combined_block[seed_col] == seed]
-                    
-                    # Pivot and reindex to align structured layout
-                    pivot_data = seed_block.pivot(index="Y_Label", columns="Protein", values=cfg["val_col"])
-                    pivot_data = pivot_data.reindex(custom_order)
-                    
-                    # Only show colorbar on the last plot panel to save real estate
-                    is_last = (idx == num_seeds - 1)
-                    sns.heatmap(
-                        pivot_data, annot=show_annotations, fmt=".3f", cmap=cmap, vmin=vmin, vmax=vmax,
-                        ax=ax, cbar=is_last, cbar_kws={"label": "Δ Base Score" if is_last else ""},
-                        linewidths=0.5, annot_kws={"size": 8}
-                    )
-                    
-                    ax.set_title(f"{seed}", fontsize=TITLE_FONT_SIZE, weight="bold")
-                    ax.set_xlabel("Protein Target", fontsize=X_AXIS_FONT_SIZE)
-                    plt.setp(ax.get_xticklabels(), rotation=45, ha="right", fontsize=PROTEIN_FONT_SIZE)
-                    
-                    if idx == 0:
-                        ax.set_ylabel(exp_type, fontsize=Y_AXIS_FONT_SIZE, weight="bold")
-                        plt.setp(ax.get_yticklabels(), fontsize=ABLATION_FONT_SIZE)
-                    else:
-                        ax.set_ylabel("")
-                
-                fig.suptitle(cfg["title"], fontsize=TITLE_FONT_SIZE + 2, weight="bold", y=1.02)
-                
-            else:
-                # SINGLE SEED FALLBACK (Original Layout)
-                fig, ax = plt.subplots(figsize=(8.5, 5))
-                pivot_data = combined_block.pivot(index="Y_Label", columns="Protein", values=cfg["val_col"])
+                # Pivot and reindex to align structured layout
+                pivot_data = seed_block.pivot(index="Y_Label", columns="Protein", values=cfg["val_col"])
                 pivot_data = pivot_data.reindex(custom_order)
+                
+                # Create standard single figure layout
+                fig, ax = plt.subplots(figsize=(8.5, 5))
                 
                 sns.heatmap(
                     pivot_data, annot=show_annotations, fmt=".3f", cmap=cmap, vmin=vmin, vmax=vmax,
@@ -187,37 +155,25 @@ def generate_heatmap_from_md(md_file_path: str, output_image_path: str = "ablati
                     linewidths=0.5, annot_kws={"size": 9}
                 )
                 
+                # Add seed information to the title dynamically
+                full_title = f"{cfg['title']} ({seed})"
+                
                 ax.set_ylabel(exp_type, fontsize=Y_AXIS_FONT_SIZE, weight="bold")
                 ax.set_xlabel("Protein Target", fontsize=X_AXIS_FONT_SIZE, labelpad=10)
-                ax.set_title(cfg["title"], fontsize=TITLE_FONT_SIZE, weight="bold", pad=12)
+                ax.set_title(full_title, fontsize=TITLE_FONT_SIZE, weight="bold", pad=12)
                 plt.setp(ax.get_xticklabels(), rotation=45, ha="right", fontsize=PROTEIN_FONT_SIZE)
                 plt.setp(ax.get_yticklabels(), fontsize=ABLATION_FONT_SIZE)
 
-            state_output_path = output_path_obj.parent / f"{output_path_obj.stem}_{cfg['suffix']}{output_path_obj.suffix}"
-            plt.savefig(state_output_path, dpi=300, bbox_inches="tight")
-            print(f"[Success] Saved seed-aware delta graphic: {state_output_path}")
-            plt.close(fig)
+                # Append seed to filename dynamically (e.g. baseline_heatmap_Mutation_X_State1_Seed1.png)
+                state_output_path = output_path_obj.parent / f"{output_path_obj.stem}_{cfg['suffix']}_{seed}{output_path_obj.suffix}"
+                
+                plt.tight_layout()
+                plt.savefig(state_output_path, dpi=300, bbox_inches="tight")
+                print(f"[Success] Saved standalone graphic: {state_output_path}")
+                plt.close(fig)
 
 
 def main():
     parser = argparse.ArgumentParser(description="Generate structural delta heatmaps grouped by experiment category.")
     parser.add_argument("-i", "--input_md", type=str, required=True, help="Path to your .md file.")
-    parser.add_argument("-o", "--output_png", type=str, default="ablation_delta_heatmap.png", help="Output destination image path.")
-    parser.add_argument("-sa", "--show_annot", action="store_false", help="Show numerical text annotations inside the heatmap cells.")
-    parser.add_argument("--vmin", type=float, default=-0.2, help="Fixed minimum value for heatmap color scale.")
-    parser.add_argument("--vmax", type=float, default=0.2, help="Fixed maximum value for heatmap color scale.")
-    
-    args = parser.parse_args()
-
-    try:
-        generate_heatmap_from_md(
-            args.input_md, args.output_png, show_annotations=not args.show_annot, 
-            vmin=args.vmin, vmax=args.vmax
-        )
-    except Exception as e:
-        print(f"\n[CRITICAL ERROR] Failed to plot grouped heatmap: {e}")
-        traceback.print_exc()
-
-
-if __name__ == "__main__":
-    main()
+    parser.add_argument("-o", "--output_png", type=str, default="ablation_delta_heatmap.png",
