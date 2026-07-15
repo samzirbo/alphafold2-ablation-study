@@ -10,7 +10,6 @@ import os
 import sys
 
 # --- HARDCODED BASELINE VALUES of Depth 5120 INTEGRATION ---
-# Potentially mean values or any other metric can also be applied here! 
 BASELINE_LOOKUP = {
     "ASCT2":  {"s1": 0.906875, "s2": 0.953802},
     "CCR5":   {"s1": 0.978090, "s2": 0.927801},
@@ -42,9 +41,6 @@ MEAN_LOOKUP = {
 }
 
 
-
-
-
 def parse_ablation_details(experiment_name, nseq):
     """
     Improved parser that links the baseline folder directly to your 
@@ -54,7 +50,7 @@ def parse_ablation_details(experiment_name, nseq):
     
     # 1. CATCH THE BASELINE / CONTROL FOLDER
     if exp_str.lower() in ["base_case", "control", "baseline", "nan", "no experiment type"]:
-        return "Baseline", 0, "Seed0"  # Default seed for baseline
+        return "Baseline", 0, "Seed0"
 
     name_clean = exp_str.replace("_", " ").title()
     
@@ -114,9 +110,12 @@ def process_evaluations(data_files: list[str], metric: str = "max", top_k: int =
                 print(f"          -> Fallback applied: Assigning protein tracking label as '{subfolder_name}'\n")
                 df["protein"] = subfolder_name
 
-            # Fix: Standardize headers per file BEFORE pd.concat
+            # Fix: Standardize headers per file BEFORE pd.concat (mapping both raw and highscores)
             if "tm_IF" in df.columns:
                 df = df.rename(columns={"tm_IF": "state_1", "tm_OF": "state_2"})
+                has_if_labels = True
+            elif "mean_tm_IF" in df.columns:
+                df = df.rename(columns={"mean_tm_IF": "state_1", "mean_tm_OF": "state_2"})
                 has_if_labels = True
             elif "tm_I" in df.columns:
                 df = df.rename(columns={"tm_I": "state_1", "tm_A": "state_2"})
@@ -138,7 +137,6 @@ def process_evaluations(data_files: list[str], metric: str = "max", top_k: int =
         
     df = pd.concat(dfs, ignore_index=True)
     
-    # Replace the old if/elif block with this clean dynamic label selector:
     if has_if_labels and has_ia_labels:
         s1_label, s2_label = "State 1 (IF/I)", "State 2 (OF/A)"
     elif has_if_labels:
@@ -148,20 +146,15 @@ def process_evaluations(data_files: list[str], metric: str = "max", top_k: int =
 
     s1_col, s2_col = "state_1", "state_2"
 
-    # Apply the corrected parsing function
+    # Apply the corrected parsing function (returning 3 values: type, value, seed)
     parsed = df.apply(lambda row: parse_ablation_details(row["experiment"], row["nseq"]), axis=1)
     df["exp_type"] = [p[0] for p in parsed]
     df["ablation_val"] = [p[1] for p in parsed]
-    df["seed"] = [p[2] for p in parsed] # capture seed here
+    df["seed"] = [p[2] for p in parsed]  # <--- CRITICAL: Populates seed column
 
-
-    # Group and aggregate stats, omitting NaN predictions automatically
+    # Group and aggregate stats, including seed in grouping keys
     group_cols = ["exp_type", "ablation_val", "seed", "protein"]
-
-    # --- CUSTOM AGGREGATION BASED ON METRIC ---
-    group_cols = ["exp_type", "ablation_val", "protein"]
     
-    # Define a helper function to grab the mean of the top k highest elements
     def mean_top_k(x):
         return x.nlargest(top_k).mean()
 
@@ -179,45 +172,25 @@ def process_evaluations(data_files: list[str], metric: str = "max", top_k: int =
         s1_target_col, s2_target_col = "s1_mean", "s2_mean"
     elif metric == "top_k":
         stats = df.groupby(group_cols).agg(
-            s1_min=(s1_col, "min"), s1_max=(s1_col, "max"), s1_mean=(s1_col, "mean"), s1_top5=(s1_col, mean_top_5),
-            s2_min=(s2_col, "min"), s2_max=(s2_col, "max"), s2_mean=(s2_col, "mean"), s2_top5=(s2_col, mean_top_5)
+            s1_min=(s1_col, "min"), s1_max=(s1_col, "max"), s1_mean=(s1_col, "mean"), s1_top5=(s1_col, mean_top_k),
+            s2_min=(s2_col, "min"), s2_max=(s2_col, "max"), s2_mean=(s2_col, "mean"), s2_top5=(s2_col, mean_top_k)
         ).reset_index()
         s1_target_col, s2_target_col = "s1_top5", "s2_top5"
 
     stats = stats.dropna(subset=["s1_mean", "s2_mean"])
 
-    # stats = df.groupby(group_cols).agg(
-    #     s1_min=(s1_col, "min"), s1_max=(s1_col, "max"), s1_mean=(s1_col, "mean"),
-    #     s2_min=(s2_col, "min"), s2_max=(s2_col, "max"), s2_mean=(s2_col, "mean")
-    # ).reset_index()
-
-    # # Drop any protein aggregates that ended up completely empty (e.g. CCR5, CGRPR)
-    # stats = stats.dropna(subset=["s1_mean", "s2_mean"])
-
-    # # 1. Isolate the baselines using ONLY the protein name as the unique key
-    # # (Assuming every protein has exactly one baseline entry where ablation_val == 0)
-    # baselines_df = stats[stats["ablation_val"].astype(str) == "0"].set_index("protein")
-
-
-
-
     def get_delta(row, state_key, target_col):
         protein_key = str(row["protein"]).strip()
-        #max_col = "s1_max" if state_key == "s1" else "s2_max"
-        
-        # Pull baseline value directly from hardcoded object dictionary
         if protein_key in BASELINE_LOOKUP:
             if metric == "max":
                 base_val = BASELINE_LOOKUP[protein_key][state_key]
             elif metric == "mean":
                 base_val = MEAN_LOOKUP[protein_key][state_key]
             elif metric == "top_5":
-                # FIX: Subtract the Max baseline from your Top 5 score
                 base_val = BASELINE_LOOKUP[protein_key][state_key]
             else:
                 base_val = 0.1
             return row[target_col] - base_val
-            
         return 0.0
 
     stats["s1_delta"] = stats.apply(lambda r: get_delta(r, "s1", s1_target_col), axis=1)
@@ -227,6 +200,7 @@ def process_evaluations(data_files: list[str], metric: str = "max", top_k: int =
         stats = stats.drop(columns=["s1_top5", "s2_top5"])
     return stats, (s1_label, s2_label)
 
+
 def generate_markdown_reports(stats, labels, output_path=None):
     s1_lbl, s2_lbl = labels
     report_str = []
@@ -235,10 +209,10 @@ def generate_markdown_reports(stats, labels, output_path=None):
 
     unified_report = stats.copy()
     
-    # Sort by protein, then experiment, then seed, then numerically by ablation level
+    # 1. SORT FIRST using original lowercase pandas column names
     unified_report = unified_report.sort_values(by=["protein", "exp_type", "seed", "ablation_val"])
     
-    # Arrange and rename columns into a single, cohesive master table
+    # 2. RENAME SECOND
     unified_report.columns = [
         "Experiment Type", "Ablation Level", "Seed", "Protein",
         f"Min {s1_lbl}", f"Max {s1_lbl}", f"Mean {s1_lbl}",
@@ -246,7 +220,7 @@ def generate_markdown_reports(stats, labels, output_path=None):
         f"Δ Base {s1_lbl}", f"Δ Base {s2_lbl}"
     ]
     
-    # Reorder columns to put 'Protein' and 'Seed' upfront
+    # 3. REORDER COLUMNS using new names
     column_order = [
         "Protein", "Experiment Type", "Ablation Level", "Seed",
         f"Min {s1_lbl}", f"Max {s1_lbl}", f"Mean {s1_lbl}", f"Δ Base {s1_lbl}",
@@ -264,22 +238,14 @@ def generate_markdown_reports(stats, labels, output_path=None):
         print(f"[Success] Unified report saved to: {output_path}")
     else:
         print(final_output)
-  
 
 
 def main():
-    # Generate a dynamic default filename with a timestamp
-
-
-    default_filename = f"/content/drive/MyDrive/AlphaFold2 Ablation Study/04_Results/plots/TM_Score/ablation_report_{datetime.now().strftime('%Y-%m-%d')}.md"
+    default_filename = f"./ablation_report_{datetime.now().strftime('%Y-%m-%d')}.md"
 
     class DynamicHelpAction(argparse._HelpAction):
         def __call__(self, parser, namespace, values, option_string=None):
-            # Fallback default path
-            data_dir = "/content/drive/MyDrive/AlphaFold2 Ablation Study/04_Results/plots/TM_Score/"
-            
-            # Manually extract the data directory from raw sys.argv if present
-            # Checks for both '-i value' and '--data_dir value' or '--data_dir=value'
+            data_dir = "./"
             for i, arg in enumerate(sys.argv):
                 if arg in ["-i", "--data_dir"]:
                     if i + 1 < len(sys.argv):
@@ -299,161 +265,70 @@ def main():
                 folder_list_str = f"\nAvailable subfolders found in '{data_dir}':\n" + "\n".join(subfolders)
                 parser.epilog = getattr(parser, 'epilog', '') + folder_list_str
             else:
-                parser.epilog = getattr(parser, 'epilog', '') + f"\n\nNo subfolders discovered in '{data_dir}' (or directory doesn't exist yet)."
+                parser.epilog = getattr(parser, 'epilog', '') + f"\n\nNo subfolders discovered in '{data_dir}'."
             
             super().__call__(parser, namespace, values, option_string)
 
-
-    usage_examples = f"""
-Examples of usage:
-  # 1. Omitting output saves automatically to current directory (e.g., {default_filename})
-  python %(prog)s -i data/
-
-  # 2. Specifying a custom output path
-  python %(prog)s -i data/ -o custom_report.md
-
-  # 3. Match multiple patterns (e.g., must contain 'query' OR 'row')
-  python %(prog)s -i data/ --experiment_include query row
-
-
-Output Report Columns Dictionary:
-    Experiment Type       The categorized track evaluated (e.g., Query Mask, MSA Depth Reduction).
-    Ablation Level        Integer degree of reduction applied (e.g., 0 for Baseline/Control, 15 for 15 percent)
-    Protein               The targeted system identifier extracted from the trial data.
-    Min [State]           The minimum observed TM score for that specific state configuration group.
-    Max [State]           The peak observed TM score achievement.
-    Mean [State]          Arithmetic average of structural scores across matching runs.
-    Δ Base [State]        Mathematical absolute difference comparing current Max score to the matching 
-                        Baseline run (Ablation Level == 0). Negative implies degradation.
-    """
-
     parser = argparse.ArgumentParser(
         description="Process ablation experiment evaluation logs.",
-        epilog=usage_examples,
         formatter_class=argparse.RawDescriptionHelpFormatter,
         add_help=False
     )
     
+    parser.add_argument('-h', '--help', action=DynamicHelpAction, help='show help')
+    parser.add_argument("-i", "--data_dir", type=str, default="./")
+    parser.add_argument("-o", "--output_md", type=str, default=default_filename)
+    parser.add_argument("--experiment_include", type=str, nargs="+")
+    parser.add_argument("--experiment_exclude", type=str, nargs="+")
+    parser.add_argument("--compare", type=str, choices=["max", "mean", "top_k"], default="max")
+    parser.add_argument("-k", "--top_k", type=int, default=5)
 
-    parser.add_argument(
-        '-h', '--help', 
-        action=DynamicHelpAction, 
-        help='show this help message and exit'
-    )
-    parser.add_argument(
-        "-i", "--data_dir", 
-        type=str, 
-        default="/content/drive/MyDrive/AlphaFold2 Ablation Study/04_Results/plots/TM_Score/",
-        help="Path to the directory containing evaluation CSV files."
-    )
-    
-    parser.add_argument(
-        "-o", "--output_md", 
-        type=str, 
-        default=default_filename,
-        help=f"Path to output markdown file. Defaults to '{default_filename}' if omitted."
-    )
-
-    parser.add_argument(
-        "--experiment_include",
-        type=str,
-        nargs="+",
-        help="One or more substrings. Only process subfolders that contain at least one of these strings."
-    )
-    parser.add_argument(
-        "--experiment_exclude",
-        type=str,
-        nargs="+",
-        help= "One or more substrings. Completely skip subfolders containing any of these strings."
-    )
-
-    parser.add_argument(
-        "--compare",
-        type=str,
-        choices=["max", "mean", "top_k"],
-        default="max",
-        help="Select the metric comparison value to measure against the baseline configuration (max, mean, or top_k)."
-    )
-    parser.add_argument(
-        "-k", "--top_k",
-        type=int,
-        default=5,
-        help="The 'k' value to use when executing '--compare top_k' evaluations. Defaults to 5."
-    )
-
-
-    
     args = parser.parse_args()
     
     try:
-        
         input_path = Path(args.data_dir)
-
-        # ─── FIXED GOOGLE DRIVE FILE SEARCH START ───
-
         csv_files = []
         
-        # os.walk with followlinks=True forces Google Drive to open and read subfolders
         for root, dirs, files in os.walk(input_path, followlinks=True):
-
             folder_name = os.path.relpath(root, input_path)
-
-            # Skip base dir
             if folder_name != ".":
-                #Exclusion: Skip any exclude keywors
                 if args.experiment_exclude and any(x.lower() in folder_name.lower() for x in args.experiment_exclude):
                     continue
-
-                # Skip if no include match 
                 if args.experiment_include:
                     match_found = False
                     for x in args.experiment_include:
                         x_low = x.lower()
                         f_low = folder_name.lower()
-                        
-                        # Specific fix: If include string contains a digit, require exact match with top-level folder
-                        # to prevent 'query_mask_5' from matching 'query_mask_50' or 'query_mask_5_Seed0'
                         if any(c.isdigit() for c in x_low):
                             top_level_folder = f_low.replace('\\', '/').split('/')[0]
                             if x_low == top_level_folder:
                                 match_found = True
                                 break
                         else:
-                            # Generic pattern (e.g., 'query' or 'row') -> allow substring match
                             if x_low in f_low:
                                 match_found = True
                                 break
-                                
                     if not match_found:
                         continue
 
-        
-                
-
             for file in files:
                 if file.endswith(".csv"):
-                    full_path = os.path.join(root, file)
-                    csv_files.append(full_path)
-        # ─── FIXED GOOGLE DRIVE FILE SEARCH END ───
+                    csv_files.append(os.path.join(root, file))
 
         if not csv_files:
             raise FileNotFoundError(f"No CSV files found in directory: {args.data_dir}")
 
-        #print(csv_files)
-
-        stats_df, labels = process_evaluations(csv_files, metric = args.compare)
-
-        
+        stats_df, labels = process_evaluations(csv_files, metric=args.compare, top_k=args.top_k)
         generate_markdown_reports(stats_df, labels, args.output_md)
+        
     except Exception as e:
-        # Verbose Error Block
         print("\n" + "="*60)
         print(f"[CRITICAL ERROR] Failed to complete ablation evaluation execution.")
         print(f"Error Type:    {type(e).__name__}")
         print(f"Error Summary: {e}")
         print("="*60)
         print("Detailed Execution Traceback:")
-        traceback.print_exc()  # Prints the full stack trace directly to stderr
+        traceback.print_exc()
         print("="*60 + "\n")
 
 if __name__ == "__main__":
