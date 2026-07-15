@@ -176,4 +176,22 @@ def generate_heatmap_from_md(md_file_path: str, output_image_path: str = "ablati
 def main():
     parser = argparse.ArgumentParser(description="Generate structural delta heatmaps grouped by experiment category.")
     parser.add_argument("-i", "--input_md", type=str, required=True, help="Path to your .md file.")
-    parser.add_argument("-o", "--output_png", type=str, default="ablation_delta_heatmap.png",
+    parser.add_argument("-o", "--output_png", type=str, default="ablation_delta_heatmap.png", help="Output destination image path.")
+    parser.add_argument("-sa", "--show_annot", action="store_false", help="Show numerical text annotations inside the heatmap cells.")
+    parser.add_argument("--vmin", type=float, default=-0.2, help="Fixed minimum value for heatmap color scale.")
+    parser.add_argument("--vmax", type=float, default=0.2, help="Fixed maximum value for heatmap color scale.")
+    
+    args = parser.parse_args()
+
+    try:
+        generate_heatmap_from_md(
+            args.input_md, args.output_png, show_annotations=not args.show_annot, 
+            vmin=args.vmin, vmax=args.vmax
+        )
+    except Exception as e:
+        print(f"\n[CRITICAL ERROR] Failed to plot grouped heatmap: {e}")
+        traceback.print_exc()
+
+
+if __name__ == "__main__":
+    main()
