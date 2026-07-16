@@ -3,6 +3,8 @@ from pathlib import Path
 import io
 import re
 import matplotlib.pyplot as plt
+from matplotlib.patches import Polygon
+from matplotlib.collections import PatchCollection
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -18,7 +20,104 @@ def get_numeric_suffix(condition_string):
     return int(match.group()) if match else 0
 
 
-def generate_heatmap_from_md(md_file_path: str, output_image_path: str = "ablation_delta_heatmap.png", show_annotations: bool = True, vmin: float = -0.2, vmax: float = 0.2):
+def draw_diagonal_split_heatmap(pivot_s1, pivot_s2, custom_order, proteins, cmap_name, vmin, vmax, show_annotations, title, ylabel, xlabel, output_path, figsize, fonts_config):
+    """
+    Renders a custom heatmap where each cell is divided diagonally into two triangles.
+    Styled to match Seaborn's default heatmap properties perfectly.
+    """
+    fig, ax = plt.subplots(figsize=figsize)
+    
+    # Establish grid parameters
+    nrows = len(custom_order)
+    ncols = len(proteins)
+    
+    # Set limits and background color matching Seaborn's empty/NaN look
+    ax.set_xlim(0, ncols)
+    ax.set_ylim(0, nrows)
+    ax.set_facecolor("#f0f0f0") 
+    
+    # Get color mapping
+    cmap = plt.get_cmap(cmap_name)
+    norm = plt.Normalize(vmin=vmin, vmax=vmax)
+    
+    patches_s1, colors_s1 = [], []
+    patches_s2, colors_s2 = [], []
+    
+    for r_idx, row_label in enumerate(custom_order):
+        # Identify padding/empty rows
+        if not row_label.strip():
+            continue
+            
+        for c_idx, col_label in enumerate(proteins):
+            val_s1 = pivot_s1.at[row_label, col_label]
+            val_s2 = pivot_s2.at[row_label, col_label]
+            
+            if pd.isna(val_s1) or pd.isna(val_s2):
+                continue
+                
+            x0, x1 = c_idx, c_idx + 1
+            y0, y1 = nrows - 1 - r_idx, nrows - r_idx  # Invert Y to match pandas top-down rendering
+            
+            # Triangle 1: Upper-Left (State 1)
+            t1 = Polygon([[x0, y1], [x1, y1], [x0, y0]], closed=True)
+            patches_s1.append(t1)
+            colors_s1.append(cmap(norm(val_s1)))
+            
+            # Triangle 2: Lower-Right (State 2)
+            t2 = Polygon([[x1, y1], [x1, y0], [x0, y0]], closed=True)
+            patches_s2.append(t2)
+            colors_s2.append(cmap(norm(val_s2)))
+            
+            if show_annotations:
+                # Text color logic matching Seaborn's color thresholding
+                c_s1 = "white" if abs(val_s1) > (vmax - vmin) * 0.3 else "black"
+                c_s2 = "white" if abs(val_s2) > (vmax - vmin) * 0.3 else "black"
+                
+                ax.text(x0 + 0.30, y0 + 0.70, f"{val_s1:.3f}", 
+                        color=c_s1, ha="center", va="center", fontsize=8, weight="normal")
+                ax.text(x0 + 0.70, y0 + 0.30, f"{val_s2:.3f}", 
+                        color=c_s2, ha="center", va="center", fontsize=8, weight="normal")
+
+    # Add polygon collections with clean white borders matching Seaborn's linewidths=0.5
+    p_coll1 = PatchCollection(patches_s1, facecolors=colors_s1, edgecolors='white', linewidths=0.5)
+    p_coll2 = PatchCollection(patches_s2, facecolors=colors_s2, edgecolors='white', linewidths=0.5)
+    ax.add_collection(p_coll1)
+    ax.add_collection(p_coll2)
+    
+    # Configure exact styling matching Seaborn tick parameters
+    ax.set_xticks(np.arange(ncols) + 0.5)
+    ax.set_xticklabels(proteins, rotation=45, ha="right", fontsize=fonts_config["PROTEIN_FONT_SIZE"])
+    
+    # Align row labels matching top-down reindexed ordering
+    ax.set_yticks(np.arange(nrows) + 0.5)
+    ax.set_yticklabels(list(reversed(custom_order)), fontsize=fonts_config["ABLATION_FONT_SIZE"])
+    
+    # Remove outer spines/borders & tick ticks (Seaborn default heatmap behavior)
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    ax.tick_params(left=False, bottom=False)
+    
+    # Labels and Titles
+    ax.set_ylabel(ylabel, fontsize=fonts_config["Y_AXIS_FONT_SIZE"], weight="bold")
+    ax.set_xlabel(xlabel, fontsize=fonts_config["X_AXIS_FONT_SIZE"], labelpad=10)
+    ax.set_title(title, fontsize=fonts_config["TITLE_FONT_SIZE"], weight="bold", pad=12)
+    
+    # Colorbar configuration matching Seaborn
+    sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+    sm.set_array([])
+    cbar = fig.colorbar(sm, ax=ax, pad=0.04, aspect=20)
+    cbar.set_label("Absolute Change to Baseline (Δ)", fontsize=11)
+    cbar.outline.set_visible(False)  # Match Seaborn flat colorbar style
+    
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=300, bbox_inches="tight")
+    print(f"[Success] Saved consolidated diagonal-split graphic: {output_path}")
+    plt.close(fig)
+
+
+def generate_heatmap_from_md(md_file_path: str, output_image_path: str = "ablation_delta_heatmap.png", 
+                             show_annotations: bool = True, vmin: float = -0.2, vmax: float = 0.2, 
+                             state_combine: bool = False):
     path = Path(md_file_path)
     if not path.exists():
         raise FileNotFoundError(f"Could not find the specified Markdown report at: {md_file_path}")
@@ -83,23 +182,22 @@ def generate_heatmap_from_md(md_file_path: str, output_image_path: str = "ablati
     cmap = "coolwarm"  
     output_path_obj = Path(output_image_path)
 
-    # Styling constants
-    TITLE_FONT_SIZE = 14
-    X_AXIS_FONT_SIZE = 14  
-    Y_AXIS_FONT_SIZE = 14 
-    PROTEIN_FONT_SIZE = 11
-    ABLATION_FONT_SIZE = 10
+    # Styling constants bundled into a single configuration block
+    fonts_config = {
+        "TITLE_FONT_SIZE": 14,
+        "X_AXIS_FONT_SIZE": 14,
+        "Y_AXIS_FONT_SIZE": 14,
+        "PROTEIN_FONT_SIZE": 11,
+        "ABLATION_FONT_SIZE": 10
+    }
 
     for exp_type in unique_experiments:
-        # Extract specific experiment data
         exp_data = experiment_df[experiment_df["Experiment Type"] == exp_type].copy()
         
-        # Determine labels for rows
         exp_data["Y_Label"] = exp_data["Ablation Level"].astype(int, errors='ignore').astype(str)
         if exp_type != "Depth":
             exp_data["Y_Label"] = exp_data["Y_Label"] + "%"
         
-        # Replicate baseline metrics across all unique seeds present in exp_data
         unique_seeds = exp_data[seed_col].unique()
         baseline_replicated = []
         for s in unique_seeds:
@@ -116,7 +214,6 @@ def generate_heatmap_from_md(md_file_path: str, output_image_path: str = "ablati
         
         combined_block = pd.concat([exp_data, current_baseline], ignore_index=True)
         
-        # Format label conditionally: Hide seed if it is Seed0 / Seed 0
         def get_formatted_label(row):
             s_val = str(row[seed_col]).strip()
             if re.match(r'^seed\s*0$', s_val, re.IGNORECASE):
@@ -125,7 +222,6 @@ def generate_heatmap_from_md(md_file_path: str, output_image_path: str = "ablati
 
         combined_block["Y_Label_Seed"] = combined_block.apply(get_formatted_label, axis=1)
 
-        # Sort underlying combos
         unique_combos = combined_block[["Y_Label", seed_col]].drop_duplicates()
         sorted_combos = sorted(
             unique_combos.itertuples(index=False),
@@ -136,25 +232,21 @@ def generate_heatmap_from_md(md_file_path: str, output_image_path: str = "ablati
             )
         )
         
-        # --- GENERATE ORDER & INSERT BLANK ROW PADDING ---
         custom_order = []
         padded_rows = []
-        
         prev_group = None
-        space_counter = 1  # Unique space strings prevent Pandas from collapsing duplicate blank rows
+        space_counter = 1
 
         for row in sorted_combos:
             current_group = str(row.Y_Label)
             s_val = str(getattr(row, seed_col)).strip()
             
-            # Detect group transition (e.g. 15% -> 30%, or 30% -> Baseline)
             if prev_group is not None and prev_group != current_group:
                 blank_label = " " * space_counter
                 space_counter += 1
                 
                 custom_order.append(blank_label)
                 
-                # Add an empty dummy row to the dataset with NaN values
                 for protein in combined_block["Protein"].unique():
                     padded_rows.append({
                         "Protein": protein,
@@ -163,7 +255,6 @@ def generate_heatmap_from_md(md_file_path: str, output_image_path: str = "ablati
                         "Delta_State2": np.nan
                     })
             
-            # Append current actual item
             if re.match(r'^seed\s*0$', s_val, re.IGNORECASE):
                 lbl = current_group
             else:
@@ -175,6 +266,8 @@ def generate_heatmap_from_md(md_file_path: str, output_image_path: str = "ablati
         if padded_rows:
             padding_df = pd.DataFrame(padded_rows)
             combined_block = pd.concat([combined_block, padding_df], ignore_index=True)
+
+        proteins_list = sorted(list(combined_block["Protein"].dropna().unique()))
 
         states_config = {
             "State1": {
@@ -189,39 +282,62 @@ def generate_heatmap_from_md(md_file_path: str, output_image_path: str = "ablati
             }
         }
 
-        # --- PROCESS SEPARATELY FOR EACH STATE ---
-        for state_key, cfg in states_config.items():
-            # Pivot, reindex using our padded sorting order
-            pivot_data = combined_block.pivot_index = combined_block.pivot_table(
-                index="Y_Label_Seed", columns="Protein", values=cfg["val_col"], dropna=False
-            )
-            pivot_data = pivot_data.reindex(custom_order)
+        # --- OPTION 1: DIAGONAL SPLIT COMBINED HEATMAP ---
+        if state_combine:
+            pivot_s1 = combined_block.pivot_table(index="Y_Label_Seed", columns="Protein", values="Delta_State1", dropna=False)
+            pivot_s2 = combined_block.pivot_table(index="Y_Label_Seed", columns="Protein", values="Delta_State2", dropna=False)
+            
+            pivot_s1 = pivot_s1.reindex(custom_order)
+            pivot_s2 = pivot_s2.reindex(custom_order)
             
             fig_height = max(5, len(custom_order) * 0.45)
-            fig, ax = plt.subplots(figsize=(10, fig_height))
             
-            sns.heatmap(
-                pivot_data, annot=show_annotations, fmt=".3f", cmap=cmap, vmin=vmin, vmax=vmax,
-                ax=ax, cbar=True, cbar_kws={"label": "Absolute Change to Baseline (Δ)"},
-                linewidths=0.5, annot_kws={"size": 9}
-            )
-            
-            full_title = f"{cfg['title']}"
+            title = f"Δ TM-Score: States 1 & 2 Combined"
             if len(unique_seeds) > 1:
-                full_title += " (All Seeds Unified)"
+                title += " (All Seeds Unified)"
+                
+            state_output_path = output_path_obj.parent / f"{output_path_obj.stem}_{re.sub(r'[^a-zA-Z0-9_\-]', '_', exp_type)}_Combined{output_path_obj.suffix}"
             
-            ax.set_ylabel(f"{exp_type} & Seed", fontsize=Y_AXIS_FONT_SIZE, weight="bold")
-            ax.set_xlabel("Protein Target", fontsize=X_AXIS_FONT_SIZE, labelpad=10)
-            ax.set_title(full_title, fontsize=TITLE_FONT_SIZE, weight="bold", pad=12)
-            plt.setp(ax.get_xticklabels(), rotation=45, ha="right", fontsize=PROTEIN_FONT_SIZE)
-            plt.setp(ax.get_yticklabels(), fontsize=ABLATION_FONT_SIZE)
+            draw_diagonal_split_heatmap(
+                pivot_s1=pivot_s1, pivot_s2=pivot_s2, custom_order=custom_order, proteins=proteins_list,
+                cmap_name=cmap, vmin=vmin, vmax=vmax, show_annotations=show_annotations,
+                title=title, ylabel=f"{exp_type} & Seed", xlabel="Protein Target",
+                output_path=state_output_path, figsize=(10, fig_height), fonts_config=fonts_config
+            )
 
-            state_output_path = output_path_obj.parent / f"{output_path_obj.stem}_{cfg['suffix']}{output_path_obj.suffix}"
-            
-            plt.tight_layout()
-            plt.savefig(state_output_path, dpi=300, bbox_inches="tight")
-            print(f"[Success] Saved consolidated padded graphic: {state_output_path}")
-            plt.close(fig)
+        # --- OPTION 2: DEFAULT SEPARATED HEATMAPS ---
+        else:
+            for state_key, cfg in states_config.items():
+                pivot_data = combined_block.pivot_table(
+                    index="Y_Label_Seed", columns="Protein", values=cfg["val_col"], dropna=False
+                )
+                pivot_data = pivot_data.reindex(custom_order)
+                
+                fig_height = max(5, len(custom_order) * 0.45)
+                fig, ax = plt.subplots(figsize=(10, fig_height))
+                
+                sns.heatmap(
+                    pivot_data, annot=show_annotations, fmt=".3f", cmap=cmap, vmin=vmin, vmax=vmax,
+                    ax=ax, cbar=True, cbar_kws={"label": "Absolute Change to Baseline (Δ)"},
+                    linewidths=0.5, annot_kws={"size": 9}
+                )
+                
+                full_title = f"{cfg['title']}"
+                if len(unique_seeds) > 1:
+                    full_title += " (All Seeds Unified)"
+                
+                ax.set_ylabel(f"{exp_type} & Seed", fontsize=fonts_config["Y_AXIS_FONT_SIZE"], weight="bold")
+                ax.set_xlabel("Protein Target", fontsize=fonts_config["X_AXIS_FONT_SIZE"], labelpad=10)
+                ax.set_title(full_title, fontsize=fonts_config["TITLE_FONT_SIZE"], weight="bold", pad=12)
+                plt.setp(ax.get_xticklabels(), rotation=45, ha="right", fontsize=fonts_config["PROTEIN_FONT_SIZE"])
+                plt.setp(ax.get_yticklabels(), fontsize=fonts_config["ABLATION_FONT_SIZE"])
+
+                state_output_path = output_path_obj.parent / f"{output_path_obj.stem}_{cfg['suffix']}{output_path_obj.suffix}"
+                
+                plt.tight_layout()
+                plt.savefig(state_output_path, dpi=300, bbox_inches="tight")
+                print(f"[Success] Saved consolidated padded graphic: {state_output_path}")
+                plt.close(fig)
 
 
 def main():
@@ -231,13 +347,14 @@ def main():
     parser.add_argument("-sa", "--show_annot", action="store_false", help="Show numerical text annotations inside the heatmap cells.")
     parser.add_argument("--vmin", type=float, default=-0.2, help="Fixed minimum value for heatmap color scale.")
     parser.add_argument("--vmax", type=float, default=0.2, help="Fixed maximum value for heatmap color scale.")
+    parser.add_argument("--state-combine", action="store_true", help="Combine State 1 and State 2 into diagonally split cells on a single plot.")
     
     args = parser.parse_args()
 
     try:
         generate_heatmap_from_md(
             args.input_md, args.output_png, show_annotations=not args.show_annot, 
-            vmin=args.vmin, vmax=args.vmax
+            vmin=args.vmin, vmax=args.vmax, state_combine=args.state_combine
         )
     except Exception as e:
         print(f"\n[CRITICAL ERROR] Failed to plot grouped heatmap: {e}")
