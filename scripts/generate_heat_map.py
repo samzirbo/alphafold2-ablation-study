@@ -3,6 +3,7 @@ from pathlib import Path
 import io
 import re
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 import seaborn as sns
 import traceback
@@ -115,10 +116,16 @@ def generate_heatmap_from_md(md_file_path: str, output_image_path: str = "ablati
         
         combined_block = pd.concat([exp_data, current_baseline], ignore_index=True)
         
-        # Generate combined label field: "50% (Seed0)" or "Baseline (Seed1)"
-        combined_block["Y_Label_Seed"] = combined_block["Y_Label"] + " (" + combined_block[seed_col].astype(str) + ")"
+        # Format label conditionally: Hide seed if it is Seed0 / Seed 0
+        def get_formatted_label(row):
+            s_val = str(row[seed_col]).strip()
+            if re.match(r'^seed\s*0$', s_val, re.IGNORECASE):
+                return str(row["Y_Label"])
+            return f"{row['Y_Label']} ({s_val})"
 
-        # Sort: Baselines at the bottom, experimental conditions sorted by level, then by seed
+        combined_block["Y_Label_Seed"] = combined_block.apply(get_formatted_label, axis=1)
+
+        # Sort underlying combos
         unique_combos = combined_block[["Y_Label", seed_col]].drop_duplicates()
         sorted_combos = sorted(
             unique_combos.itertuples(index=False),
@@ -129,7 +136,45 @@ def generate_heatmap_from_md(md_file_path: str, output_image_path: str = "ablati
             )
         )
         
-        custom_order = [f"{row.Y_Label} ({getattr(row, seed_col)})" for row in sorted_combos]
+        # --- GENERATE ORDER & INSERT BLANK ROW PADDING ---
+        custom_order = []
+        padded_rows = []
+        
+        prev_group = None
+        space_counter = 1  # Unique space strings prevent Pandas from collapsing duplicate blank rows
+
+        for row in sorted_combos:
+            current_group = str(row.Y_Label)
+            s_val = str(getattr(row, seed_col)).strip()
+            
+            # Detect group transition (e.g. 15% -> 30%, or 30% -> Baseline)
+            if prev_group is not None and prev_group != current_group:
+                blank_label = " " * space_counter
+                space_counter += 1
+                
+                custom_order.append(blank_label)
+                
+                # Add an empty dummy row to the dataset with NaN values
+                for protein in combined_block["Protein"].unique():
+                    padded_rows.append({
+                        "Protein": protein,
+                        "Y_Label_Seed": blank_label,
+                        "Delta_State1": np.nan,
+                        "Delta_State2": np.nan
+                    })
+            
+            # Append current actual item
+            if re.match(r'^seed\s*0$', s_val, re.IGNORECASE):
+                lbl = current_group
+            else:
+                lbl = f"{current_group} ({s_val})"
+                
+            custom_order.append(lbl)
+            prev_group = current_group
+
+        if padded_rows:
+            padding_df = pd.DataFrame(padded_rows)
+            combined_block = pd.concat([combined_block, padding_df], ignore_index=True)
 
         states_config = {
             "State1": {
@@ -144,13 +189,14 @@ def generate_heatmap_from_md(md_file_path: str, output_image_path: str = "ablati
             }
         }
 
-        # --- PROCESS SEPARATELY FOR EACH STATE (SEEDS CONSOLIDATED) ---
+        # --- PROCESS SEPARATELY FOR EACH STATE ---
         for state_key, cfg in states_config.items():
-            # Pivot on our combined label
-            pivot_data = combined_block.pivot(index="Y_Label_Seed", columns="Protein", values=cfg["val_col"])
+            # Pivot, reindex using our padded sorting order
+            pivot_data = combined_block.pivot_index = combined_block.pivot_table(
+                index="Y_Label_Seed", columns="Protein", values=cfg["val_col"], dropna=False
+            )
             pivot_data = pivot_data.reindex(custom_order)
             
-            # Dynamically scale the figure height depending on how many rows/seeds we have
             fig_height = max(5, len(custom_order) * 0.45)
             fig, ax = plt.subplots(figsize=(10, fig_height))
             
@@ -170,15 +216,33 @@ def generate_heatmap_from_md(md_file_path: str, output_image_path: str = "ablati
             plt.setp(ax.get_xticklabels(), rotation=45, ha="right", fontsize=PROTEIN_FONT_SIZE)
             plt.setp(ax.get_yticklabels(), fontsize=ABLATION_FONT_SIZE)
 
-            # Output filename drops isolated seed strings because it contains all of them
             state_output_path = output_path_obj.parent / f"{output_path_obj.stem}_{cfg['suffix']}{output_path_obj.suffix}"
             
             plt.tight_layout()
             plt.savefig(state_output_path, dpi=300, bbox_inches="tight")
-            print(f"[Success] Saved consolidated graphic: {state_output_path}")
+            print(f"[Success] Saved consolidated padded graphic: {state_output_path}")
             plt.close(fig)
 
 
 def main():
     parser = argparse.ArgumentParser(description="Generate structural delta heatmaps grouped by experiment category.")
-    parser.add_argument("-i", "--input_md", type=str, required=True, help="Path
+    parser.add_argument("-i", "--input_md", type=str, required=True, help="Path to your .md file.")
+    parser.add_argument("-o", "--output_png", type=str, default="ablation_delta_heatmap.png", help="Output destination image path.")
+    parser.add_argument("-sa", "--show_annot", action="store_false", help="Show numerical text annotations inside the heatmap cells.")
+    parser.add_argument("--vmin", type=float, default=-0.2, help="Fixed minimum value for heatmap color scale.")
+    parser.add_argument("--vmax", type=float, default=0.2, help="Fixed maximum value for heatmap color scale.")
+    
+    args = parser.parse_args()
+
+    try:
+        generate_heatmap_from_md(
+            args.input_md, args.output_png, show_annotations=not args.show_annot, 
+            vmin=args.vmin, vmax=args.vmax
+        )
+    except Exception as e:
+        print(f"\n[CRITICAL ERROR] Failed to plot grouped heatmap: {e}")
+        traceback.print_exc()
+
+
+if __name__ == "__main__":
+    main()
