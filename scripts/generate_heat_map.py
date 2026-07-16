@@ -160,12 +160,23 @@ def generate_heatmap_from_md(md_file_path: str, output_image_path: str = "ablati
             
     if seed_col is None:
         print("[Info] No 'Seed' column detected. Visualizing as single seed dataset.")
-        df["Seed"] = "Seed0"
+        df["Seed"] = "Default"
         seed_col = "Seed"
 
-    # Identify dynamic column names for Delta States
-    s1_col = [c for c in df.columns if "Δ Base" in c and any(sub in c for sub in ["State 1", "Inward", "Inactive"])][0]
-    s2_col = [c for c in df.columns if "Δ Base" in c and any(sub in c for sub in ["State 2", "Outward", "Active"])][0]
+# Identify dynamic column names for Delta States (updated for robust matching)
+    s1_col = [
+        c for c in df.columns 
+        if "Δ Base" in c and any(sub in c for sub in ["State 1", "IF", "IF/I", "Inward", "Inactive"])
+    ][0]
+    
+    s2_col = [
+        c for c in df.columns 
+        if "Δ Base" in c and any(sub in c for sub in ["State 2", "OF", "OF/A", "Outward", "Active"])
+    ][0]
+
+
+
+
 
     df["Delta_State1"] = pd.to_numeric(df[s1_col], errors='coerce')
     df["Delta_State2"] = pd.to_numeric(df[s2_col], errors='coerce')
@@ -216,7 +227,7 @@ def generate_heatmap_from_md(md_file_path: str, output_image_path: str = "ablati
         
         def get_formatted_label(row):
             s_val = str(row[seed_col]).strip()
-            if re.match(r'^seed\s*0$', s_val, re.IGNORECASE):
+            if len(unique_seeds) <= 1 or re.match(r'^(default)$', s_val, re.IGNORECASE):
                 return str(row["Y_Label"])
             return f"{row['Y_Label']} ({s_val})"
 
@@ -241,7 +252,8 @@ def generate_heatmap_from_md(md_file_path: str, output_image_path: str = "ablati
             current_group = str(row.Y_Label)
             s_val = str(getattr(row, seed_col)).strip()
             
-            if prev_group is not None and prev_group != current_group:
+            # ONLY add blank padding rows if we actually have multiple seeds to separate
+            if len(unique_seeds) > 1 and prev_group is not None and prev_group != current_group:
                 blank_label = " " * space_counter
                 space_counter += 1
                 
@@ -255,7 +267,7 @@ def generate_heatmap_from_md(md_file_path: str, output_image_path: str = "ablati
                         "Delta_State2": np.nan
                     })
             
-            if re.match(r'^seed\s*0$', s_val, re.IGNORECASE):
+            if len(unique_seeds) <= 1 or re.match(r'^(default)$', s_val, re.IGNORECASE):
                 lbl = current_group
             else:
                 lbl = f"{current_group} ({s_val})"
@@ -294,14 +306,15 @@ def generate_heatmap_from_md(md_file_path: str, output_image_path: str = "ablati
             
             title = f"Δ TM-Score: States 1 & 2 Combined"
             if len(unique_seeds) > 1:
-                title += " (All Seeds Unified)"
+                #title += " (All Seeds Unified)"
+                title = title
                 
             state_output_path = output_path_obj.parent / f"{output_path_obj.stem}_{re.sub(r'[^a-zA-Z0-9_\-]', '_', exp_type)}_Combined{output_path_obj.suffix}"
             
             draw_diagonal_split_heatmap(
                 pivot_s1=pivot_s1, pivot_s2=pivot_s2, custom_order=custom_order, proteins=proteins_list,
                 cmap_name=cmap, vmin=vmin, vmax=vmax, show_annotations=show_annotations,
-                title=title, ylabel=f"{exp_type} & Seed", xlabel="Protein Target",
+                title=title, ylabel=f"{exp_type}", xlabel="Protein Target",
                 output_path=state_output_path, figsize=(10, fig_height), fonts_config=fonts_config
             )
 
@@ -324,9 +337,10 @@ def generate_heatmap_from_md(md_file_path: str, output_image_path: str = "ablati
                 
                 full_title = f"{cfg['title']}"
                 if len(unique_seeds) > 1:
-                    full_title += " (All Seeds Unified)"
+                    #full_title += " (All Seeds Unified)"
+                    full_title = full_title
                 
-                ax.set_ylabel(f"{exp_type} & Seed", fontsize=fonts_config["Y_AXIS_FONT_SIZE"], weight="bold")
+                ax.set_ylabel(f"{exp_type}", fontsize=fonts_config["Y_AXIS_FONT_SIZE"], weight="bold")
                 ax.set_xlabel("Protein Target", fontsize=fonts_config["X_AXIS_FONT_SIZE"], labelpad=10)
                 ax.set_title(full_title, fontsize=fonts_config["TITLE_FONT_SIZE"], weight="bold", pad=12)
                 plt.setp(ax.get_xticklabels(), rotation=45, ha="right", fontsize=fonts_config["PROTEIN_FONT_SIZE"])

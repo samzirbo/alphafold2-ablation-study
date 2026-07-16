@@ -25,6 +25,23 @@ BASELINE_LOOKUP = {
     "ZnT8":   {"s1": 0.898871, "s2": 0.896885}
 }
 
+
+TOP_5_BASELINE = {
+    "ASCT2":  {"s1": 0.900909, "s2": 0.952056},
+    "CCR5":  {"s1": 0.977807, "s2": 0.927206},
+    "CGRPR":  {"s1": 0.903961, "s2": 0.948467},
+    "FZD7":  {"s1": 0.927170, "s2": 0.937161},
+    "LAT1":  {"s1": 0.954654, "s2": 0.933330},
+    "MCT1":  {"s1": 0.978847, "s2": 0.815559},
+    "MurJ":  {"s1": 0.969450, "s2": 0.747798},
+    "PTH1R":  {"s1": 0.872883, "s2": 0.946925},
+    "PfMATE":  {"s1": 0.740347, "s2": 0.994068},
+    "SERT":  {"s1": 0.919914, "s2": 0.988468},
+    "STP10":  {"s1": 0.944204, "s2": 0.951962},
+    "ZnT8":  {"s1": 0.896208, "s2": 0.893918},
+}
+
+
 MEAN_LOOKUP = {
     "ASCT2":  {"s1": 0.699060, "s2": 0.871854},
     "CCR5":   {"s1": 0.976848, "s2": 0.921632},
@@ -185,8 +202,8 @@ def process_evaluations(data_files: list[str], metric: str = "max", top_k: int =
                 base_val = BASELINE_LOOKUP[protein_key][state_key]
             elif metric == "mean":
                 base_val = MEAN_LOOKUP[protein_key][state_key]
-            elif metric == "top_5":
-                base_val = BASELINE_LOOKUP[protein_key][state_key]
+            elif metric == "top_k":
+                base_val = TOP_5_BASELINE[protein_key][state_key]
             else:
                 base_val = 0.1
             return row[target_col] - base_val
@@ -210,22 +227,39 @@ def generate_markdown_reports(stats, labels, output_path=None):
     
     # Sort strictly using the lowercase column names
     unified_report = unified_report.sort_values(by=["protein", "exp_type", "seed", "ablation_val"])
-    
-    # Rename columns to formatted presentation styles
-    unified_report.columns = [
-        "Experiment Type", "Ablation Level", "Seed", "Protein",
-        f"Min {s1_lbl}", f"Max {s1_lbl}", f"Mean {s1_lbl}",
-        f"Min {s2_lbl}", f"Max {s2_lbl}", f"Mean {s2_lbl}",
-        f"Δ Base {s1_lbl}", f"Δ Base {s2_lbl}"
+
+    print("DEBUG - actual columns:", list(unified_report.columns))
+
+# 1. First, reorder the raw columns using the actual database keys (so they never mismatch)
+    raw_column_order = [
+        "protein", "exp_type", "ablation_val", "seed",
+        "s1_min", "s1_max", "s1_mean", "s1_top5", "s1_delta",
+        "s2_min", "s2_max", "s2_mean", "s2_top5", "s2_delta"
     ]
     
-    # Reorder structure
-    column_order = [
-        "Protein", "Experiment Type", "Ablation Level", "Seed",
-        f"Min {s1_lbl}", f"Max {s1_lbl}", f"Mean {s1_lbl}", f"Δ Base {s1_lbl}",
-        f"Min {s2_lbl}", f"Max {s2_lbl}", f"Mean {s2_lbl}", f"Δ Base {s2_lbl}"
-    ]
-    unified_report = unified_report[column_order]
+    # Slice the dataframe safely using original keys
+    unified_report = unified_report[raw_column_order]
+
+    # 2. Map the keys to their final pretty names
+    rename_map = {
+        "protein": "Protein",
+        "exp_type": "Experiment Type",
+        "ablation_val": "Ablation Level",
+        "seed": "Seed",
+        "s1_min": f"Min {s1_lbl}",
+        "s1_max": f"Max {s1_lbl}",
+        "s1_mean": f"Mean {s1_lbl}",
+        "s1_top5": f"Top 5 {s1_lbl}",
+        "s1_delta": f"Δ Base {s1_lbl}",
+        "s2_min": f"Min {s2_lbl}",
+        "s2_max": f"Max {s2_lbl}",
+        "s2_mean": f"Mean {s2_lbl}",
+        "s2_top5": f"Top 5 {s2_lbl}",
+        "s2_delta": f"Δ Base {s2_lbl}"
+    }
+    
+    # 3. Rename them safely
+    unified_report = unified_report.rename(columns=rename_map)
     
     report_str.append(unified_report.to_markdown(index=False, floatfmt=".3f"))
     final_output = "\n".join(report_str)
@@ -260,9 +294,11 @@ def main():
             
             if subfolders:
                 folder_list_str = f"\nAvailable subfolders found in '{data_dir}':\n" + "\n".join(subfolders)
-                parser.epilog = getattr(parser, 'epilog', '') + folder_list_str
+                # Direct access with 'or' fallback, no getattr needed
+                parser.epilog = (parser.epilog or '') + folder_list_str
             else:
-                parser.epilog = getattr(parser, 'epilog', '') + f"\n\nNo subfolders discovered in '{data_dir}'."
+                # Direct access with 'or' fallback, no getattr needed
+                parser.epilog = (parser.epilog or '') + f"\n\nNo subfolders discovered in '{data_dir}'."
             
             super().__call__(parser, namespace, values, option_string)
 
