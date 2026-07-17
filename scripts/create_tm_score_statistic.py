@@ -238,7 +238,8 @@ def generate_markdown_reports(stats, labels, output_path=None):
     ]
     
     # Slice the dataframe safely using original keys
-    unified_report = unified_report[raw_column_order]
+    existing_columns = [col for col in raw_column_order if col in unified_report.columns]
+    unified_report = unified_report[existing_columns]
 
     # 2. Map the keys to their final pretty names
     rename_map = {
