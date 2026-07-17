@@ -326,37 +326,37 @@ def main():
         for root, dirs, files in os.walk(input_path, followlinks=True):
             folder_name = os.path.relpath(root, input_path)
 
-            # 1. Handle EXCLUSIONS (Prune both dirs and skip files)
-            if args.experiment_exclude:
-                # We modify dirs in-place to stop os.walk from entering excluded subfolders
-                dirs[:] = [d for d in dirs if not any(x.lower() in d.lower() for x in args.experiment_exclude)]
-                
-                # Skip the current root folder itself if it matches the exclusion keyword
-                if any(x.lower() in folder_name.lower() for x in args.experiment_exclude):
-                    continue
-
-            # 2. Handle INCLUSIONS (Skip folders that don't match our criteria)
             if folder_name != ".":
+                # Get the name of the top-level folder directly under input_path
+                # (e.g., "query_mask_15_col_mask_15/seed0" -> "query_mask_15_col_mask_15")
+                top_folder = folder_name.replace('\\', '/').split('/')[0]
+                top_folder_low = top_folder.lower()
+
+                # 1. Handle EXCLUSIONS (Check if top-level folder contains any excluded words)
+                if args.experiment_exclude:
+                    if any(x.lower() in top_folder_low for x in args.experiment_exclude):
+                        dirs.clear()  # Do not walk any deeper into this excluded tree
+                        continue      # Skip files in this folder
+
+                # 2. Handle INCLUSIONS (Check if top-level folder matches inclusion rules)
                 if args.experiment_include:
                     match_found = False
                     for x in args.experiment_include:
                         x_low = x.lower()
-                        f_low = folder_name.lower()
                         if any(c.isdigit() for c in x_low):
-                            top_level_folder = f_low.replace('\\', '/').split('/')[0]
-                            if x_low == top_level_folder:
+                            if x_low == top_folder_low:
                                 match_found = True
                                 break
                         else:
-                            if x_low in f_low:
+                            if x_low in top_folder_low:
                                 match_found = True
                                 break
+                    
                     if not match_found:
-                        # Prune dirs so we don't look deeper into an un-included folder
-                        dirs.clear() 
-                        continue
+                        dirs.clear()  # Do not walk any deeper into this un-included tree
+                        continue      # Skip files in this folder
 
-            # 3. Process the files only if we made it past exclusions/inclusions
+            # 3. Process files (only reached if the top-level folder passed all checks)
             for file in files:
                 if file.endswith(".csv"):
                     csv_files.append(os.path.join(root, file))
