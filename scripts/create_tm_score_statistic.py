@@ -322,12 +322,21 @@ def main():
     try:
         input_path = Path(args.data_dir)
         csv_files = []
-        
+
         for root, dirs, files in os.walk(input_path, followlinks=True):
             folder_name = os.path.relpath(root, input_path)
-            if folder_name != ".":
-                if args.experiment_exclude and any(x.lower() in folder_name.lower() for x in args.experiment_exclude):
+
+            # 1. Handle EXCLUSIONS (Prune both dirs and skip files)
+            if args.experiment_exclude:
+                # We modify dirs in-place to stop os.walk from entering excluded subfolders
+                dirs[:] = [d for d in dirs if not any(x.lower() in d.lower() for x in args.experiment_exclude)]
+                
+                # Skip the current root folder itself if it matches the exclusion keyword
+                if any(x.lower() in folder_name.lower() for x in args.experiment_exclude):
                     continue
+
+            # 2. Handle INCLUSIONS (Skip folders that don't match our criteria)
+            if folder_name != ".":
                 if args.experiment_include:
                     match_found = False
                     for x in args.experiment_include:
@@ -343,8 +352,11 @@ def main():
                                 match_found = True
                                 break
                     if not match_found:
+                        # Prune dirs so we don't look deeper into an un-included folder
+                        dirs.clear() 
                         continue
 
+            # 3. Process the files only if we made it past exclusions/inclusions
             for file in files:
                 if file.endswith(".csv"):
                     csv_files.append(os.path.join(root, file))
