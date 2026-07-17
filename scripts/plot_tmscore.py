@@ -167,7 +167,7 @@ def get_axis_lower_limit(protein: str) -> float:
 
 def depth_color(depth: int):
     values = [16, 32, 64, 128, 256, 512, 1024, 5120]
-    cmap = plt.cm.gist_rainbow
+    cmap = plt.cm.okabe_ito
     positions = np.linspace(0, 1, len(values))
     color_dict = {
         v: mcolors.to_hex(cmap(p))
@@ -285,14 +285,25 @@ def plot_tm_score(
             title_fontproperties=FontProperties(weight="bold", size=font_size + 3)
         )
     else:
+        if color_on == "nseq":
+            c_vals = [depth_color(d) for d in data[color_on]]
+            cmap, norm = None, None
+        else:
+            unique_vals = np.sort(data[color_on].unique())
+            c_vals = [np.where(unique_vals == v)[0][0] for v in data[color_on]]
+            cmap = "okabe_ito"
+            norm = mcolors.BoundaryNorm(np.arange(-0.5, len(unique_vals) + 0.5), plt.cm.okabe_ito.N)
+
         scatter = ax.scatter(
             data[x_col_name],
             data[y_col_name],
-            c=[depth_color(d) for d in data[color_on]] if color_on == "nseq" else data[color_on],
+            c=c_vals,
             s=30,
             edgecolors="black",
             linewidths=0.375,
-            alpha=opacity
+            alpha=opacity,
+            cmap=cmap,
+            norm=norm
         )
 
     x_label = "inward-facing" if structure_type == "conformational" else "inactive"
@@ -381,6 +392,9 @@ def plot_tm_score(
             fontweight="bold",
             labelpad=font_size + 1
         )
+        unique_vals = np.sort(data[color_on].unique())
+        cbar.set_ticks(np.arange(len(unique_vals)))
+        cbar.set_ticklabels([str(int(v)) for v in unique_vals])
 
     if limit_axis:
         if axis_bounds is None:
