@@ -212,7 +212,9 @@ def plot_tm_score(
         axis_title_fontsize: float = None,
         legend_title_fontsize: float = None,
         legend_text_fontsize: float = None,
-        colors: list = None
+        colors: list = None,
+        show_title: bool = True,
+        legend_mode: str = "inline"
 ) -> None:
     """
     :param data_file: path to csv file
@@ -268,6 +270,11 @@ def plot_tm_score(
 
     assert legend_layout in {"auto", "row", "column"}, \
         f"legend_layout must be 'auto', 'row', or 'column', got {legend_layout!r}"
+    assert legend_mode in {"inline", "separate", "none"}, \
+        f"legend_mode must be 'inline', 'separate', or 'none', got {legend_mode!r}"
+
+    # Filled by the shape / categorical-colour branches, then rendered per `legend_mode` below.
+    legend_spec = None
 
     # Resolve absolute font sizes; fall back to the historical font_size + N defaults.
     axis_title_size = axis_title_fontsize if axis_title_fontsize is not None else font_size + 1
@@ -309,14 +316,12 @@ def plot_tm_score(
             for cat, marker in marker_map.items()
         ]
 
-        ax.legend(
+        legend_spec = dict(
             handles=shape_handles,
             title=f"{shape_on} shape values:",
-            loc="upper center",
-            bbox_to_anchor=(0.5, -0.15),
             ncol=1 if legend_layout == "column" else len(shape_handles),
             fontsize=legend_text_size,
-            title_fontproperties=FontProperties(weight="bold", size=legend_title_size)
+            title_fontproperties=FontProperties(weight="bold", size=legend_title_size),
         )
     elif categorical_color:
         categories = np.sort(data[color_on].dropna().unique())
@@ -343,10 +348,9 @@ def plot_tm_score(
                           and i < len(legend_labels) else str(cat)))
             for i, cat in enumerate(categories)
         ]
-        ax.legend(
+        legend_spec = dict(
             handles=color_handles,
             title=legend_title if legend_title is not None else f"{color_on}:",
-            loc="upper center", bbox_to_anchor=(0.5, -0.15),
             ncol=1 if legend_layout == "column" else len(color_handles),
             fontsize=legend_text_size,
             title_fontproperties=FontProperties(weight="bold", size=legend_title_size),
@@ -493,13 +497,14 @@ def plot_tm_score(
         for t in ax.get_xticklabels() + ax.get_yticklabels():
             t.set_fontweight("bold")
 
-    if title is not None:
-        plt.title(title, fontsize=font_size + 5, weight="bold", pad=font_size + 7)
-    else:
-        title = f"{protein} | Depth: {depth_text}"
-        if experiment_name is not None:
-            title = "Experiment: " + experiment_name + "\n" + title
-        plt.title(title, fontsize=font_size + 5, weight="bold", pad=font_size + 7)
+    if show_title:
+        if title is not None:
+            plt.title(title, fontsize=font_size + 5, weight="bold", pad=font_size + 7)
+        else:
+            title = f"{protein} | Depth: {depth_text}"
+            if experiment_name is not None:
+                title = "Experiment: " + experiment_name + "\n" + title
+            plt.title(title, fontsize=font_size + 5, weight="bold", pad=font_size + 7)
 
     if output_dir is not None:
         if output_dir[-1] != "/":
@@ -508,12 +513,29 @@ def plot_tm_score(
             save_file_name = output_dir + save_file_name
     save_file_name = save_file_name if save_file_name is not None else f"{output_dir}{protein}.png"
 
-    plt.savefig(
+    # Render the discrete legend according to `legend_mode`:
+    #   "inline"   -> draw it on the plot (current behaviour)
+    #   "separate" -> keep it off the plot and export it to "<name>_legend<ext>"
+    #   "none"     -> omit it entirely
+    if legend_spec is not None and legend_mode == "inline":
+        ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.15), **legend_spec)
+
+    fig.savefig(
         save_file_name,
         dpi=300,
         bbox_inches="tight"
     )
-    plt.close()
+
+    if legend_spec is not None and legend_mode == "separate":
+        p = Path(save_file_name)
+        legend_path = str(p.with_name(f"{p.stem}_legend{p.suffix}"))
+        fig_legend = plt.figure(figsize=(4, 3), dpi=300)
+        fig_legend.legend(loc="center", **legend_spec)
+        fig_legend.savefig(legend_path, dpi=300, bbox_inches="tight")
+        plt.close(fig_legend)
+        print("Saved legend to", legend_path)
+
+    plt.close(fig)
 
 
 def combine_plots(
@@ -540,7 +562,9 @@ def combine_plots(
         axis_title_fontsize: float = None,
         legend_title_fontsize: float = None,
         legend_text_fontsize: float = None,
-        colors: list = None
+        colors: list = None,
+        show_title: bool = True,
+        legend_mode: str = "inline"
 ) -> None:
     dfs = []
     ref_cols = None
@@ -591,6 +615,8 @@ def combine_plots(
         legend_title_fontsize=legend_title_fontsize,
         legend_text_fontsize=legend_text_fontsize,
         colors=colors,
+        show_title=show_title,
+        legend_mode=legend_mode,
     )
 
 
