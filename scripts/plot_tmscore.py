@@ -189,7 +189,10 @@ def plot_tm_score(
         font_size: int = 6,
         opacity: float = 1,
         color_on: str = None,
-        shape_on: str = None
+        shape_on: str = None,
+        legend_title: str = None,
+        legend_labels: list = None
+
 ) -> None:
     """
     :param data_file: path to csv file
@@ -240,6 +243,9 @@ def plot_tm_score(
     fig, ax = plt.subplots(figsize=(5, 5), dpi=300)
     ax.grid(True, color="lightgray", linewidth=0.5, alpha=0.4)
 
+    color_is_numeric = pd.api.types.is_numeric_dtype(data[color_on])
+    categorical_color = (color_on != "nseq") and not color_is_numeric
+
     if shape_on is not None:
         markers = [
             "o", "s", "^", "D", "v", "<", ">", "P", "X",
@@ -284,6 +290,35 @@ def plot_tm_score(
             fontsize=font_size + 2,
             title_fontproperties=FontProperties(weight="bold", size=font_size + 3)
         )
+    elif categorical_color:
+        categories = np.sort(data[color_on].dropna().unique())
+        color_map = {
+            cat: mcolors.to_hex(plt.cm.okabe_ito(i)) for i, cat in enumerate(categories)
+        }
+        for cat in categories:
+            mask = data[color_on] == cat
+            ax.scatter(
+                data.loc[mask, x_col_name], data.loc[mask, y_col_name],
+                c=color_map[cat], s=30, edgecolors="black",
+                linewidths=0.375, alpha=opacity,
+            )
+        color_handles = [
+            Line2D([0], [0], marker="o", linestyle="",
+                   markerfacecolor=color_map[cat], markeredgecolor="black",
+                   markersize=6,
+                   label=(legend_labels[i] if legend_labels is not None
+                          and i < len(legend_labels) else str(cat)))
+            for i, cat in enumerate(categories)
+        ]
+        ax.legend(
+            handles=color_handles,
+            title=legend_title if legend_title is not None else f"{color_on}:",
+            loc="upper center", bbox_to_anchor=(0.5, -0.15),
+            ncol=len(color_handles), fontsize=font_size + 2,
+            title_fontproperties=FontProperties(weight="bold", size=font_size + 3),
+        )
+
+
     else:
         if color_on == "nseq":
             c_vals = [depth_color(d) for d in data[color_on]]
@@ -385,16 +420,18 @@ def plot_tm_score(
             depth_text = f"{unique_depths[0]}"
     else:
         depth_text = f"{', '.join([str(x) for x in np.sort(data['nseq'].unique()).tolist()])}"
-        cbar = plt.colorbar(scatter, ax=ax)
-        cbar.set_label(
-            color_on,
-            fontsize=font_size + 1,
-            fontweight="bold",
-            labelpad=font_size + 1
-        )
-        unique_vals = np.sort(data[color_on].unique())
-        cbar.set_ticks(np.arange(len(unique_vals)))
-        cbar.set_ticklabels([str(int(v)) for v in unique_vals])
+        if not categorical_color:
+            cbar = plt.colorbar(scatter, ax=ax)
+            cbar.set_label(
+                color_on,
+                fontsize=font_size + 1,
+                fontweight="bold",
+                labelpad=font_size + 1
+            )
+            unique_vals = np.sort(data[color_on].unique())
+            cbar.set_ticks(np.arange(len(unique_vals)))
+            cbar.set_ticklabels([str(int(v)) for v in unique_vals])
+
 
     if limit_axis:
         if axis_bounds is None:
@@ -441,7 +478,10 @@ def combine_plots(
         font_size: int = 6,
         opacity: float = 1,
         color_on: str = None,
-        shape_on: str = None
+        shape_on: str = None,
+        legend_title: str = None,
+        legend_labels: list = None
+
 ) -> None:
     dfs = []
     ref_cols = None
@@ -480,7 +520,10 @@ def combine_plots(
         font_size,
         opacity,
         color_on,
-        shape_on
+        shape_on,
+        legend_title,
+        legend_labels
+
     )
 
 
