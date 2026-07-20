@@ -324,13 +324,17 @@ def plot_tm_score(
         color_map = {
             cat: palette[i % len(palette)] for i, cat in enumerate(categories)
         }
-        for cat in categories:
+        for i, cat in enumerate(categories):
             mask = data[color_on] == cat
+            # per-experiment opacity: `opacity` may be a scalar (same for all points) or a
+            # list/tuple aligned to the SORTED categories (same convention as `colors`)
+            cat_alpha = opacity[i] if isinstance(opacity, (list, tuple, np.ndarray)) else opacity
             ax.scatter(
                 data.loc[mask, x_col_name], data.loc[mask, y_col_name],
                 c=color_map[cat], s=30, edgecolors="black",
-                linewidths=0.375, alpha=opacity,
+                linewidths=0.375, alpha=cat_alpha,
             )
+
         color_handles = [
             Line2D([0], [0], marker="o", linestyle="",
                    markerfacecolor=color_map[cat], markeredgecolor="black",
