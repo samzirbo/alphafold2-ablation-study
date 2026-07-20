@@ -176,6 +176,18 @@ def depth_color(depth: int):
     return color_dict[depth]
 
 
+def get_okabe_ito_colors() -> list:
+    """
+    Return the Okabe-Ito colour-blind-safe palette as a list of hex strings.
+
+    Handy for the ``colors=`` argument of ``plot_tm_score`` / ``combine_plots``:
+    pass palette entries directly or mix them with your own colours, e.g.
+    ``colors=[get_okabe_ito_colors()[0], "#000000"]``.
+    """
+    cmap = plt.cm.okabe_ito
+    return [mcolors.to_hex(cmap(i)) for i in range(cmap.N)]
+
+
 def plot_tm_score(
         data_file: str,
         save_file_name: str = None,
@@ -191,8 +203,16 @@ def plot_tm_score(
         color_on: str = None,
         shape_on: str = None,
         legend_title: str = None,
-        legend_labels: list = None
-
+        legend_labels: list = None,
+        legend_layout: str = "auto",
+        tick_anchor: float = None,
+        tick_size: float = None,
+        x_axis_title: str = None,
+        y_axis_title: str = None,
+        axis_title_fontsize: float = None,
+        legend_title_fontsize: float = None,
+        legend_text_fontsize: float = None,
+        colors: list = None
 ) -> None:
     """
     :param data_file: path to csv file
@@ -246,6 +266,14 @@ def plot_tm_score(
     color_is_numeric = pd.api.types.is_numeric_dtype(data[color_on])
     categorical_color = (color_on != "nseq") and not color_is_numeric
 
+    assert legend_layout in {"auto", "row", "column"}, \
+        f"legend_layout must be 'auto', 'row', or 'column', got {legend_layout!r}"
+
+    # Resolve absolute font sizes; fall back to the historical font_size + N defaults.
+    axis_title_size = axis_title_fontsize if axis_title_fontsize is not None else font_size + 1
+    legend_title_size = legend_title_fontsize if legend_title_fontsize is not None else font_size + 3
+    legend_text_size = legend_text_fontsize if legend_text_fontsize is not None else font_size + 2
+
     if shape_on is not None:
         markers = [
             "o", "s", "^", "D", "v", "<", ">", "P", "X",
@@ -286,14 +314,15 @@ def plot_tm_score(
             title=f"{shape_on} shape values:",
             loc="upper center",
             bbox_to_anchor=(0.5, -0.15),
-            ncol=len(shape_handles),
-            fontsize=font_size + 2,
-            title_fontproperties=FontProperties(weight="bold", size=font_size + 3)
+            ncol=1 if legend_layout == "column" else len(shape_handles),
+            fontsize=legend_text_size,
+            title_fontproperties=FontProperties(weight="bold", size=legend_title_size)
         )
     elif categorical_color:
         categories = np.sort(data[color_on].dropna().unique())
+        palette = colors if colors is not None else get_okabe_ito_colors()
         color_map = {
-            cat: mcolors.to_hex(plt.cm.okabe_ito(i)) for i, cat in enumerate(categories)
+            cat: palette[i % len(palette)] for i, cat in enumerate(categories)
         }
         for cat in categories:
             mask = data[color_on] == cat
@@ -314,8 +343,9 @@ def plot_tm_score(
             handles=color_handles,
             title=legend_title if legend_title is not None else f"{color_on}:",
             loc="upper center", bbox_to_anchor=(0.5, -0.15),
-            ncol=len(color_handles), fontsize=font_size + 2,
-            title_fontproperties=FontProperties(weight="bold", size=font_size + 3),
+            ncol=1 if legend_layout == "column" else len(color_handles),
+            fontsize=legend_text_size,
+            title_fontproperties=FontProperties(weight="bold", size=legend_title_size),
         )
 
 
@@ -344,16 +374,19 @@ def plot_tm_score(
     x_label = "inward-facing" if structure_type == "conformational" else "inactive"
     y_label = "outward-facing" if structure_type == "conformational" else "active"
 
+    xlabel = x_axis_title if x_axis_title is not None else f"Similarity to {x_label} conformation (TM-score)"
+    ylabel = y_axis_title if y_axis_title is not None else f"Similarity to {y_label} conformation (TM-score)"
+
     ax.set_xlabel(
-        f"Similarity to {x_label} conformation (TM-score)",
-        fontsize=font_size + 1,
+        xlabel,
+        fontsize=axis_title_size,
         labelpad=font_size + 4,
         fontweight="bold"
     )
 
     ax.set_ylabel(
-        f"Similarity to {y_label} conformation (TM-score)",
-        fontsize=font_size + 1,
+        ylabel,
+        fontsize=axis_title_size,
         labelpad=font_size + 4,
         fontweight="bold"
     )
@@ -442,6 +475,20 @@ def plot_tm_score(
             ax.set_ylim(axis_bounds[2], axis_bounds[3])
     ax.set_aspect("auto", adjustable="box")
 
+    # Custom tick grid aligned to `tick_anchor` with spacing `tick_size`, filling the whole
+    # (already-limited) axis range on both x and y. Overrides the MaxNLocator default above.
+    if tick_anchor is not None and tick_size is not None:
+        for set_ticks, lim in [(ax.set_xticks, ax.get_xlim()), (ax.set_yticks, ax.get_ylim())]:
+            low, high = min(lim), max(lim)
+            k_min = int(np.ceil((low - tick_anchor) / tick_size))
+            k_max = int(np.floor((high - tick_anchor) / tick_size))
+            ticks = np.round(tick_anchor + tick_size * np.arange(k_min, k_max + 1), 8)
+            set_ticks(ticks)
+        # set_xticks/set_yticks replace the label objects, so re-apply size + bold weight.
+        ax.tick_params(axis="both", labelsize=font_size + 3)
+        for t in ax.get_xticklabels() + ax.get_yticklabels():
+            t.set_fontweight("bold")
+
     if title is not None:
         plt.title(title, fontsize=font_size + 5, weight="bold", pad=font_size + 7)
     else:
@@ -480,8 +527,16 @@ def combine_plots(
         color_on: str = None,
         shape_on: str = None,
         legend_title: str = None,
-        legend_labels: list = None
-
+        legend_labels: list = None,
+        legend_layout: str = "auto",
+        tick_anchor: float = None,
+        tick_size: float = None,
+        x_axis_title: str = None,
+        y_axis_title: str = None,
+        axis_title_fontsize: float = None,
+        legend_title_fontsize: float = None,
+        legend_text_fontsize: float = None,
+        colors: list = None
 ) -> None:
     dfs = []
     ref_cols = None
@@ -508,22 +563,30 @@ def combine_plots(
     print("Saved COMBINED file to", filename)
 
     plot_tm_score(
-        filename,
-        save_file_name,
-        protein,
-        title,
-        limit_axis,
-        output_dir,
-        experiment_name,
-        axis_bounds,
-        plot_guidelines,
-        font_size,
-        opacity,
-        color_on,
-        shape_on,
-        legend_title,
-        legend_labels
-
+        data_file=filename,
+        save_file_name=save_file_name,
+        protein=protein,
+        title=title,
+        limit_axis=limit_axis,
+        output_dir=output_dir,
+        experiment_name=experiment_name,
+        axis_bounds=axis_bounds,
+        plot_guidelines=plot_guidelines,
+        font_size=font_size,
+        opacity=opacity,
+        color_on=color_on,
+        shape_on=shape_on,
+        legend_title=legend_title,
+        legend_labels=legend_labels,
+        legend_layout=legend_layout,
+        tick_anchor=tick_anchor,
+        tick_size=tick_size,
+        x_axis_title=x_axis_title,
+        y_axis_title=y_axis_title,
+        axis_title_fontsize=axis_title_fontsize,
+        legend_title_fontsize=legend_title_fontsize,
+        legend_text_fontsize=legend_text_fontsize,
+        colors=colors,
     )
 
 
