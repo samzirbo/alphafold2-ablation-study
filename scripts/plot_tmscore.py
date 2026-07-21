@@ -188,6 +188,35 @@ def get_okabe_ito_colors() -> list:
     return [mcolors.to_hex(cmap(i)) for i in range(cmap.N)]
 
 
+def _arrange_legend(handles: list, legend_layout: str):
+    """
+    Return ``(handles, ncol)`` to pass to ``ax.legend`` / ``figure.legend``.
+
+    - ``"row"``    -> one horizontal row.
+    - ``"column"`` -> one vertical column.
+    - ``"auto"``   -> a compact, ~square grid that **reads left-to-right** (row-major),
+      e.g. 4 -> 2x2, 3 -> 2 + 1, 5 -> 3 + 2.
+
+    Matplotlib fills legends column-major, so for ``"auto"`` we pad to a full grid with
+    invisible entries and reshuffle into column-major order. The blank cells then land at
+    the end of the last row (where a row-major grid expects them), which keeps the visible
+    entries in label order regardless of how many there are.
+    """
+    n = len(handles)
+    if legend_layout == "column":
+        return handles, 1
+    if legend_layout == "row" or n <= 1:
+        return handles, max(n, 1)
+
+    # "auto": compact grid, row-major reading order
+    ncol = int(np.ceil(np.sqrt(n)))
+    nrows = int(np.ceil(n / ncol))
+    blank = Line2D([], [], linestyle="", marker="", label="")
+    padded = list(handles) + [blank] * (nrows * ncol - n)          # full grid, row-major
+    ordered = [padded[(k % nrows) * ncol + (k // nrows)] for k in range(nrows * ncol)]
+    return ordered, ncol
+
+
 def plot_tm_score(
         data_file: str,
         save_file_name: str = None,
@@ -316,10 +345,11 @@ def plot_tm_score(
             for cat, marker in marker_map.items()
         ]
 
+        legend_handles, legend_ncol = _arrange_legend(shape_handles, legend_layout)
         legend_spec = dict(
-            handles=shape_handles,
+            handles=legend_handles,
             title=f"{shape_on} shape values:",
-            ncol=1 if legend_layout == "column" else len(shape_handles),
+            ncol=legend_ncol,
             fontsize=legend_text_size,
             title_fontproperties=FontProperties(weight="bold", size=legend_title_size),
         )
@@ -348,10 +378,11 @@ def plot_tm_score(
                           and i < len(legend_labels) else str(cat)))
             for i, cat in enumerate(categories)
         ]
+        legend_handles, legend_ncol = _arrange_legend(color_handles, legend_layout)
         legend_spec = dict(
-            handles=color_handles,
+            handles=legend_handles,
             title=legend_title if legend_title is not None else f"{color_on}:",
-            ncol=1 if legend_layout == "column" else len(color_handles),
+            ncol=legend_ncol,
             fontsize=legend_text_size,
             title_fontproperties=FontProperties(weight="bold", size=legend_title_size),
         )
