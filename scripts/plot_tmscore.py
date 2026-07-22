@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+import re
 import warnings
 from datetime import datetime
 from pathlib import Path
@@ -19,6 +20,20 @@ from rich.console import Console
 from rich.progress import BarColumn, MofNCompleteColumn, Progress, SpinnerColumn, TextColumn
 
 console = Console()
+
+
+def _natural_sort_key(value):
+    """
+    Sort key that splits a value into text/number chunks so strings like
+    'depth_16', 'depth_32', 'depth_128' sort in numeric order
+    """
+    if isinstance(value, (int, float, np.integer, np.floating)):
+        return [value]
+    s = str(value)
+    return [
+        int(chunk) if chunk.isdigit() else chunk.lower()
+        for chunk in re.split(r"(\d+)", s)
+    ]
 
 
 def __calc_tm_score(file1_path: str, file2_path: str) -> tuple[float, int, int]:
@@ -287,13 +302,13 @@ def plot_tm_score(
         x_col_name = "tm_I"
         y_col_name = "tm_A"
 
-    data = data.sort_values(color_on)
+    data = data.sort_values(color_on, key=lambda col: col.map(_natural_sort_key))
 
     cmap_obj = plt.get_cmap(colormap)
 
     color_is_categorical = color_on != "nseq" and not pd.api.types.is_numeric_dtype(data[color_on])
     if color_is_categorical:
-        color_categories = np.sort(data[color_on].unique())
+        color_categories = sorted(data[color_on].unique(), key=_natural_sort_key)
         category_color_map = {
             cat: mcolors.to_hex(cmap_obj(i % cmap_obj.N))
             for i, cat in enumerate(color_categories)
@@ -308,7 +323,7 @@ def plot_tm_score(
             "*", "h", "H", "8", "p", "d"
         ]
 
-        categories = data[shape_on].dropna().unique()
+        categories = sorted(data[shape_on].dropna().unique(), key=_natural_sort_key)
         marker_map = {cat: markers[i % len(markers)] for i, cat in enumerate(categories)}
 
         for cat in categories:
@@ -361,8 +376,8 @@ def plot_tm_score(
             c_vals = [category_color_map[v] for v in data[color_on]]
             cmap, norm = None, None
         else:
-            unique_vals = np.sort(data[color_on].unique())
-            c_vals = [np.where(unique_vals == v)[0][0] for v in data[color_on]]
+            unique_vals = sorted(data[color_on].unique(), key=_natural_sort_key)
+            c_vals = [unique_vals.index(v) for v in data[color_on]]
             cmap = colormap
             norm = mcolors.BoundaryNorm(np.arange(-0.5, len(unique_vals) + 0.5), cmap_obj.N)
 
@@ -415,7 +430,7 @@ def plot_tm_score(
         plt.axvline(x=reference_tm, c="gray", linestyle="--")
         plt.axhline(y=reference_tm, c="gray", linestyle="--")
 
-    unique_depths = np.sort(data[color_on].unique())
+    unique_depths = sorted(data[color_on].unique(), key=_natural_sort_key)
 
     if color_on == "nseq":
         if len(unique_depths) > 1:
@@ -452,7 +467,8 @@ def plot_tm_score(
         else:
             depth_text = f"{unique_depths[0]}"
     elif color_is_categorical:
-        depth_text = f"{', '.join([str(x) for x in np.sort(data["nseq"].unique()).tolist()])}"
+        sorted_nseq = sorted(data["nseq"].unique(), key=_natural_sort_key)
+        depth_text = f"{', '.join([str(x) for x in sorted_nseq])}"
 
         color_handles = [
             Line2D(
@@ -481,7 +497,8 @@ def plot_tm_score(
         if existing_legend is not None:
             ax.add_artist(existing_legend)
     else:
-        depth_text = f"{', '.join([str(x) for x in np.sort(data["nseq"].unique()).tolist()])}"
+        sorted_nseq = sorted(data["nseq"].unique(), key=_natural_sort_key)
+        depth_text = f"{', '.join([str(x) for x in sorted_nseq])}"
         cbar = plt.colorbar(scatter, ax=ax)
         cbar.set_label(
             color_on,
@@ -489,7 +506,7 @@ def plot_tm_score(
             fontweight="bold",
             labelpad=font_size + 1
         )
-        unique_vals = np.sort(data[color_on].unique())
+        unique_vals = sorted(data[color_on].unique(), key=_natural_sort_key)
         cbar.set_ticks(np.arange(len(unique_vals)))
         cbar.set_ticklabels([str(int(v)) for v in unique_vals])
 
