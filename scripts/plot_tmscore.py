@@ -189,15 +189,38 @@ def get_axis_lower_limit(protein: str) -> float:
     }[protein]
 
 
-def depth_color(depth: int):
+def depth_color(depth: int, colormap: str = "okabe_ito"):
     values = [16, 32, 64, 128, 256, 512, 1024, 5120]
-    cmap = plt.cm.okabe_ito
+    cmap = plt.get_cmap(colormap)
     positions = np.linspace(0, 1, len(values))
     color_dict = {
         v: mcolors.to_hex(cmap(p))
         for v, p in zip(sorted(values), positions)
     }
     return color_dict[depth]
+
+
+def _round_ticks_with_one(ax, axis: str, nbins: int = 6):
+    """
+    Set nicely-rounded ticks on the given axis ('x' or 'y') and make sure
+    1.0 is always included as a labeled tick, as long as it's within the
+    current axis limits.
+    """
+    if axis == "x":
+        get_lim, set_ticks = ax.get_xlim, ax.set_xticks
+    else:
+        get_lim, set_ticks = ax.get_ylim, ax.set_yticks
+
+    locator = MaxNLocator(nbins=nbins, steps=[1, 2, 2.5, 5, 10])
+    lo, hi = get_lim()
+    ticks = locator.tick_values(lo, hi)
+    ticks = ticks[(ticks >= lo) & (ticks <= hi)]
+
+    if lo <= 1 <= hi and not np.any(np.isclose(ticks, 1.0)):
+        ticks = np.append(ticks, 1.0)
+
+    ticks = np.unique(np.round(ticks, 10))
+    set_ticks(ticks)
 
 
 def plot_tm_score(
@@ -213,7 +236,8 @@ def plot_tm_score(
         font_size: int = 6,
         opacity: float = 1,
         color_on: str = None,
-        shape_on: str = None
+        shape_on: str = None,
+        colormap: str = "okabe_ito"
 ) -> None:
     """
     :param data_file: path to csv file
@@ -232,6 +256,10 @@ def plot_tm_score(
     :param plot_guidelines: whether to plot guidelines with IF/OF TM score
     :param font_size: font size
     :param opacity of the points on the scatterplot
+    :param color_on: column to color points by
+    :param shape_on: column to shape points by
+    :param colormap: name of the matplotlib colormap to use for coloring
+            points (e.g. "okabe_ito", "viridis", "plasma", ...)
 
     Scatterplot of IF-OF / inactive-active TM-scores for different MSA depths.
     """
@@ -261,14 +289,13 @@ def plot_tm_score(
 
     data = data.sort_values(color_on)
 
-    # Non-numeric color columns (e.g. "experiment") can't be shown on a colorbar,
-    # so they get a discrete Okabe-Ito color per category and a legend instead.
+    cmap_obj = plt.get_cmap(colormap)
+
     color_is_categorical = color_on != "nseq" and not pd.api.types.is_numeric_dtype(data[color_on])
     if color_is_categorical:
         color_categories = np.sort(data[color_on].unique())
-        _okabe = plt.cm.okabe_ito
         category_color_map = {
-            cat: mcolors.to_hex(_okabe(i % _okabe.N))
+            cat: mcolors.to_hex(cmap_obj(i % cmap_obj.N))
             for i, cat in enumerate(color_categories)
         }
 
@@ -289,7 +316,7 @@ def plot_tm_score(
             if color_is_categorical:
                 point_colors = [category_color_map[v] for v in data.loc[mask, color_on]]
             elif color_on == "nseq":
-                point_colors = [depth_color(d) for d in data.loc[mask, color_on]]
+                point_colors = [depth_color(d, colormap) for d in data.loc[mask, color_on]]
             else:
                 point_colors = data.loc[mask, color_on]
 
@@ -328,7 +355,7 @@ def plot_tm_score(
         )
     else:
         if color_on == "nseq":
-            c_vals = [depth_color(d) for d in data[color_on]]
+            c_vals = [depth_color(d, colormap) for d in data[color_on]]
             cmap, norm = None, None
         elif color_is_categorical:
             c_vals = [category_color_map[v] for v in data[color_on]]
@@ -336,8 +363,8 @@ def plot_tm_score(
         else:
             unique_vals = np.sort(data[color_on].unique())
             c_vals = [np.where(unique_vals == v)[0][0] for v in data[color_on]]
-            cmap = "okabe_ito"
-            norm = mcolors.BoundaryNorm(np.arange(-0.5, len(unique_vals) + 0.5), plt.cm.okabe_ito.N)
+            cmap = colormap
+            norm = mcolors.BoundaryNorm(np.arange(-0.5, len(unique_vals) + 0.5), cmap_obj.N)
 
         scatter = ax.scatter(
             data[x_col_name],
@@ -351,34 +378,30 @@ def plot_tm_score(
             norm=norm
         )
 
-    x_label = "inward-facing" if structure_type == "conformational" else "inactive"
-    y_label = "outward-facing" if structure_type == "conformational" else "active"
+    if structure_type == "conformational":
+        x_label = "IF Conf."
+        y_label = "OF Conf."
+    else:
+        x_label = "Inactive Conf."
+        y_label = "Active Conf."
 
     ax.set_xlabel(
-        f"Similarity to {x_label} conformation (TM-score)",
+        f"TM-Score: Pred vs {x_label}",
         fontsize=font_size + 1,
         labelpad=font_size + 4,
         fontweight="bold"
     )
 
     ax.set_ylabel(
-        f"Similarity to {y_label} conformation (TM-score)",
+        f"TM-Score: Pred vs {y_label}",
         fontsize=font_size + 1,
         labelpad=font_size + 4,
         fontweight="bold"
     )
 
-    ax.xaxis.set_major_locator(MaxNLocator(nbins=6))
-    ax.yaxis.set_major_locator(MaxNLocator(nbins=6))
-
     ax.tick_params(axis="both", labelsize=font_size + 3)
     ax.set_aspect("equal", adjustable="box")
     ax.set_facecolor("white")
-
-    for tick in ax.get_xticklabels():
-        tick.set_fontweight('bold')
-    for tick in ax.get_yticklabels():
-        tick.set_fontweight('bold')
 
     ax.spines["top"].set_visible(True)
     ax.spines["right"].set_visible(True)
@@ -398,13 +421,13 @@ def plot_tm_score(
         if len(unique_depths) > 1:
             depth_text = ", ".join([str(x) for x in unique_depths])
 
-            used_colors = [depth_color(d) for d in unique_depths]
-            cmap = mcolors.ListedColormap(used_colors)
+            used_colors = [depth_color(d, colormap) for d in unique_depths]
+            legend_cmap = mcolors.ListedColormap(used_colors)
 
             bounds = np.arange(len(unique_depths) + 1)
-            norm = mcolors.BoundaryNorm(bounds, cmap.N)
+            legend_norm = mcolors.BoundaryNorm(bounds, legend_cmap.N)
 
-            sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+            sm = plt.cm.ScalarMappable(cmap=legend_cmap, norm=legend_norm)
             sm.set_array([])
 
             cbar = plt.colorbar(sm, ax=ax)
@@ -478,6 +501,14 @@ def plot_tm_score(
             ax.set_xlim(axis_bounds[0], axis_bounds[1])
             ax.set_ylim(axis_bounds[2], axis_bounds[3])
     ax.set_aspect("auto", adjustable="box")
+
+    _round_ticks_with_one(ax, "x")
+    _round_ticks_with_one(ax, "y")
+
+    for tick in ax.get_xticklabels():
+        tick.set_fontweight('bold')
+    for tick in ax.get_yticklabels():
+        tick.set_fontweight('bold')
 
     if title is not None:
         plt.title(title, fontsize=font_size + 5, weight="bold", pad=font_size + 7)
