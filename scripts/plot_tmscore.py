@@ -546,8 +546,14 @@ def combine_plots(
         font_size: int = 6,
         opacity: float = 1,
         color_on: str = None,
-        shape_on: str = None
+        shape_on: str = None,
+        colormap: str = "okabe_ito"
 ) -> None:
+    """
+    :param colormap: name of the matplotlib colormap to use for coloring
+            points (e.g. "okabe_ito", "viridis", "plasma", ...), forwarded
+            to plot_tm_score for the combined plot.
+    """
     dfs = []
     ref_cols = None
 
@@ -591,7 +597,8 @@ def combine_plots(
         font_size,
         opacity,
         color_on,
-        shape_on
+        shape_on,
+        colormap
     )
 
 
@@ -643,6 +650,13 @@ def main():
     combine_parser.add_argument("--opacity", type=float, default=1)
     combine_parser.add_argument("--color_on", type=str, default=None)
     combine_parser.add_argument("--shape_on", type=str, default=None)
+    combine_parser.add_argument(
+        "--colormap",
+        type=str,
+        default="okabe_ito",
+        help="Name of the matplotlib colormap/color palette to use for point colors "
+             "(e.g. okabe_ito, viridis, plasma, tab10)."
+    )
 
     plot_parser = subparsers.add_parser("plot", help="Plot TM-score results from CSV")
     plot_parser.add_argument("--data_file", type=str, required=True)
@@ -674,6 +688,13 @@ def main():
     plot_parser.add_argument("--opacity", type=float, default=1)
     plot_parser.add_argument("--color_on", type=str, default=None)
     plot_parser.add_argument("--shape_on", type=str, default=None)
+    plot_parser.add_argument(
+        "--colormap",
+        type=str,
+        default="okabe_ito",
+        help="Name of the matplotlib colormap/color palette to use for point colors "
+             "(e.g. okabe_ito, viridis, plasma, tab10)."
+    )
 
     full_parser = subparsers.add_parser("all", help="Run calc + plot")
     full_parser.add_argument("--protein", type=str, default=None)
@@ -708,6 +729,13 @@ def main():
     full_parser.add_argument("--opacity", type=float, default=1)
     full_parser.add_argument("--color_on", type=str, default=None)
     full_parser.add_argument("--shape_on", type=str, default=None)
+    full_parser.add_argument(
+        "--colormap",
+        type=str,
+        default="okabe_ito",
+        help="Name of the matplotlib colormap/color palette to use for point colors "
+             "(e.g. okabe_ito, viridis, plasma, tab10)."
+    )
 
     args = parser.parse_args()
     assert args.limit_axis in [True, False]
@@ -724,6 +752,7 @@ def main():
             model=args.model,
             seed=args.seed
         )
+        console.print(f"  [green]wrote[/] {csv_path}")
     elif args.command == "combine":
         combine_plots(
             data_files=args.data_files,
@@ -733,13 +762,14 @@ def main():
             limit_axis=args.limit_axis,
             output_dir=args.output_dir,
             axis_bounds=args.axis_bounds,
-            plot_guidelines=args.plot_guidelines,
+            plot_guidelines=args.guidelines,
             font_size=args.font_size,
             opacity=args.opacity,
             color_on=args.color_on,
-            shape_on=args.shape_on
+            shape_on=args.shape_on,
+            colormap=args.colormap
         )
-        console.print(f"  [green]wrote[/] {csv_path}")
+        console.print("  [green]combine + plot complete[/]")
     elif args.command == "plot":
         plot_tm_score(
             data_file=args.data_file,
@@ -749,11 +779,12 @@ def main():
             limit_axis=args.limit_axis,
             output_dir=args.output_dir,
             axis_bounds=args.axis_bounds,
-            plot_guidelines=args.plot_guidelines,
+            plot_guidelines=args.guidelines,
             font_size=args.font_size,
             opacity=args.opacity,
             color_on=args.color_on,
-            shape_on=args.shape_on
+            shape_on=args.shape_on,
+            colormap=args.colormap
         )
         console.print("  [green]plot complete[/]")
     elif args.command == "all":
@@ -768,18 +799,19 @@ def main():
             seed=args.seed
         )
         plot_tm_score(
-            data_file=args.data_file,
+            data_file=args.output_file,
             save_file_name=args.save_file,
             protein=args.protein,
             title=args.title,
             limit_axis=args.limit_axis,
             output_dir=args.output_dir,
             axis_bounds=args.axis_bounds,
-            plot_guidelines=args.plot_guidelines,
+            plot_guidelines=args.guidelines,
             font_size=args.font_size,
             opacity=args.opacity,
             color_on=args.color_on,
-            shape_on=args.shape_on
+            shape_on=args.shape_on,
+            colormap=args.colormap
         )
         console.print("  [green]calc + plot complete[/]")
 
