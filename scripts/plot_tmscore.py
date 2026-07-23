@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+import re
 import warnings
 from datetime import datetime
 from pathlib import Path
@@ -19,6 +20,31 @@ from rich.console import Console
 from rich.progress import BarColumn, MofNCompleteColumn, Progress, SpinnerColumn, TextColumn
 
 console = Console()
+
+# Standard annotation font sizes for TM-score plots, kept here as the single
+# source of truth so everything that reuses this module -- plot_tm_pca,
+# cluster_conformations, ... -- renders axis titles and legends at the same size.
+# Spread into a plot_tm_score(...) call via ``**TM_ANNOTATION_FONTSIZES``, or read
+# an individual value when drawing a TM-score panel by hand.
+TM_ANNOTATION_FONTSIZES = {
+    "axis_title_fontsize": 14,
+    "legend_text_fontsize": 12,
+    "legend_title_fontsize": 12,
+}
+
+
+def _natural_sort_key(value):
+    """
+    Sort key that splits a value into text/number chunks so strings like
+    'depth_16', 'depth_32', 'depth_128' sort in numeric order
+    """
+    if isinstance(value, (int, float, np.integer, np.floating)):
+        return [value]
+    s = str(value)
+    return [
+        int(chunk) if chunk.isdigit() else chunk.lower()
+        for chunk in re.split(r"(\d+)", s)
+    ]
 
 
 def __calc_tm_score(file1_path: str, file2_path: str) -> tuple[float, int, int]:
@@ -189,15 +215,79 @@ def get_axis_lower_limit(protein: str) -> float:
     }[protein]
 
 
-def depth_color(depth: int):
+def depth_color(depth: int, colormap: str = "okabe_ito"):
     values = [16, 32, 64, 128, 256, 512, 1024, 5120]
-    cmap = plt.cm.okabe_ito
+    cmap = plt.get_cmap(colormap)
     positions = np.linspace(0, 1, len(values))
     color_dict = {
         v: mcolors.to_hex(cmap(p))
         for v, p in zip(sorted(values), positions)
     }
     return color_dict[depth]
+
+
+def get_okabe_ito_colors() -> list:
+    """
+    Return the Okabe-Ito colour-blind-safe palette as a list of hex strings.
+
+    Handy for the ``colors=`` argument of ``plot_tm_score`` / ``combine_plots``:
+    pass palette entries directly or mix them with your own colours, e.g.
+    ``colors=[get_okabe_ito_colors()[0], "#000000"]``.
+    """
+    cmap = plt.get_cmap("okabe_ito")
+    return [mcolors.to_hex(cmap(i)) for i in range(cmap.N)]
+
+
+def _arrange_legend(handles: list, legend_layout: str):
+    """
+    Return ``(handles, ncol)`` to pass to ``ax.legend`` / ``figure.legend``.
+
+    - ``"row"``    -> one horizontal row.
+    - ``"column"`` -> one vertical column.
+    - ``"auto"``   -> a compact, ~square grid that **reads left-to-right** (row-major),
+      e.g. 4 -> 2x2, 3 -> 2 + 1, 5 -> 3 + 2.
+
+    Matplotlib fills legends column-major, so for ``"auto"`` we pad to a full grid with
+    invisible entries and reshuffle into column-major order. The blank cells then land at
+    the end of the last row (where a row-major grid expects them), which keeps the visible
+    entries in label order regardless of how many there are.
+    """
+    n = len(handles)
+    if legend_layout == "column":
+        return handles, 1
+    if legend_layout == "row" or n <= 1:
+        return handles, max(n, 1)
+
+    # "auto": compact grid, row-major reading order
+    ncol = int(np.ceil(np.sqrt(n)))
+    nrows = int(np.ceil(n / ncol))
+    blank = Line2D([], [], linestyle="", marker="", label="")
+    padded = list(handles) + [blank] * (nrows * ncol - n)
+    ordered = [padded[(k % nrows) * ncol + (k // nrows)] for k in range(nrows * ncol)]
+    return ordered, ncol
+
+
+def _round_ticks_with_one(ax, axis: str, nbins: int = 6):
+    """
+    Set nicely-rounded ticks on the given axis ('x' or 'y') and make sure
+    1.0 is always included as a labeled tick, as long as it's within the
+    current axis limits.
+    """
+    if axis == "x":
+        get_lim, set_ticks = ax.get_xlim, ax.set_xticks
+    else:
+        get_lim, set_ticks = ax.get_ylim, ax.set_yticks
+
+    locator = MaxNLocator(nbins=nbins, steps=[1, 2, 2.5, 5, 10])
+    lo, hi = get_lim()
+    ticks = locator.tick_values(lo, hi)
+    ticks = ticks[(ticks >= lo) & (ticks <= hi)]
+
+    if lo <= 1 <= hi and not np.any(np.isclose(ticks, 1.0)):
+        ticks = np.append(ticks, 1.0)
+
+    ticks = np.unique(np.round(ticks, 10))
+    set_ticks(ticks)
 
 
 def plot_tm_score(
@@ -217,7 +307,20 @@ def plot_tm_score(
         legend_font_size: int = None,
         literal_colors: bool = False,
         legend_entries: list = None,
-        legend_title: str = None
+        legend_title: str = None,
+        colormap: str = "okabe_ito",
+        legend_labels: list = None,
+        legend_layout: str = "auto",
+        tick_anchor: float = None,
+        tick_size: float = None,
+        x_axis_title: str = None,
+        y_axis_title: str = None,
+        axis_title_fontsize: float = None,
+        legend_title_fontsize: float = None,
+        legend_text_fontsize: float = None,
+        colors: list = None,
+        show_title: bool = True,
+        legend_mode: str = "inline"
 ) -> None:
     """
     :param data_file: path to csv file
@@ -236,6 +339,8 @@ def plot_tm_score(
     :param plot_guidelines: whether to plot guidelines with IF/OF TM score
     :param font_size: font size
     :param opacity of the points on the scatterplot
+    :param color_on: column to color points by
+    :param shape_on: column to shape points by
     :param legend_font_size: font size for the categorical color legend only
             (markers scale with it); defaults to font_size + 1
     :param literal_colors: if True, the ``color_on`` column already holds
@@ -245,6 +350,28 @@ def plot_tm_score(
             (typically with ``literal_colors``) a compact legend of these is
             drawn instead of the automatic colorbar/category legend.
     :param legend_title: title for the ``legend_entries`` legend.
+    :param colormap: name of the matplotlib colormap to use for coloring
+            points (e.g. "okabe_ito", "viridis", "plasma", ...)
+    :param legend_labels: optional list of labels for the categorical-colour legend,
+            aligned to the sorted colour categories; overrides the raw category values.
+    :param legend_layout: arrangement of the discrete legend entries:
+            "auto" (compact ~square grid, row-major), "row", or "column".
+    :param tick_anchor, tick_size: when both are given, place ticks on x and y at
+            ``tick_anchor + k * tick_size`` across the (limited) axis range, overriding
+            the default rounded-ticks locator.
+    :param x_axis_title, y_axis_title: override the default axis-label text.
+    :param axis_title_fontsize: absolute font size for the x/y axis titles
+            (defaults to font_size + 1).
+    :param legend_text_fontsize: absolute font size for legend entry text
+            (defaults to legend_font_size, else font_size + 1).
+    :param legend_title_fontsize: absolute font size for the legend title
+            (defaults to legend_text_fontsize + 1).
+    :param colors: optional palette (list of colour strings) for categorical colouring;
+            replaces the colormap-derived colours. See ``get_okabe_ito_colors``.
+    :param show_title: whether to draw the plot title.
+    :param legend_mode: how to render the discrete (shape/categorical) legend(s):
+            "inline" draws them on the plot, "separate" exports each to a
+            "<name>_legend<ext>" file instead, "none" omits them.
 
     Scatterplot of IF-OF / inactive-active TM-scores for different MSA depths.
     """
@@ -272,10 +399,30 @@ def plot_tm_score(
         x_col_name = "tm_I"
         y_col_name = "tm_A"
 
-    data = data.sort_values(color_on)
+    data = data.sort_values(color_on, key=lambda col: col.map(_natural_sort_key))
+
+    assert legend_layout in {"auto", "row", "column"}, \
+        f"legend_layout must be 'auto', 'row', or 'column', got {legend_layout!r}"
+    assert legend_mode in {"inline", "separate", "none"}, \
+        f"legend_mode must be 'inline', 'separate', or 'none', got {legend_mode!r}"
+
+    # Resolve absolute font sizes; fall back to the historical font_size + N behaviour.
+    # legend_text_fontsize supersedes the older legend_font_size knob when both are given.
+    legend_text_size = (
+        legend_text_fontsize if legend_text_fontsize is not None
+        else legend_font_size if legend_font_size is not None
+        else font_size + 1
+    )
+    legend_title_size = (
+        legend_title_fontsize if legend_title_fontsize is not None else legend_text_size + 1
+    )
+    axis_title_size = axis_title_fontsize if axis_title_fontsize is not None else font_size + 1
+    legend_marker_size = max(legend_text_size - 3, 2)
+
+    cmap_obj = plt.get_cmap(colormap)
 
     # Non-numeric color columns (e.g. "experiment") can't be shown on a colorbar,
-    # so they get a discrete Okabe-Ito color per category and a legend instead.
+    # so they get a discrete color per category and a legend instead.
     # When literal_colors is set, the column holds ready-made colours; it is
     # neither categorical nor numeric-mapped.
     color_is_categorical = (
@@ -284,15 +431,22 @@ def plot_tm_score(
         and not pd.api.types.is_numeric_dtype(data[color_on])
     )
     if color_is_categorical:
-        color_categories = np.sort(data[color_on].unique())
-        _okabe = plt.cm.okabe_ito
+        color_categories = sorted(data[color_on].unique(), key=_natural_sort_key)
+        # An explicit `colors` palette overrides the colormap-derived colours.
+        palette = colors if colors is not None else [
+            mcolors.to_hex(cmap_obj(i % cmap_obj.N)) for i in range(len(color_categories))
+        ]
         category_color_map = {
-            cat: mcolors.to_hex(_okabe(i % _okabe.N))
+            cat: palette[i % len(palette)]
             for i, cat in enumerate(color_categories)
         }
 
     fig, ax = plt.subplots(figsize=(5, 5), dpi=300)
     ax.grid(True, color="lightgray", linewidth=0.5, alpha=0.4)
+
+    # Discrete legends (shape and/or categorical colour) are collected here and rendered
+    # after the plot according to `legend_mode`. Colourbars are always drawn inline.
+    legend_specs = []
 
     if shape_on is not None:
         markers = [
@@ -300,7 +454,7 @@ def plot_tm_score(
             "*", "h", "H", "8", "p", "d"
         ]
 
-        categories = data[shape_on].dropna().unique()
+        categories = sorted(data[shape_on].dropna().unique(), key=_natural_sort_key)
         marker_map = {cat: markers[i % len(markers)] for i, cat in enumerate(categories)}
 
         for cat in categories:
@@ -308,7 +462,7 @@ def plot_tm_score(
             if color_is_categorical:
                 point_colors = [category_color_map[v] for v in data.loc[mask, color_on]]
             elif color_on == "nseq":
-                point_colors = [depth_color(d) for d in data.loc[mask, color_on]]
+                point_colors = [depth_color(d, colormap) for d in data.loc[mask, color_on]]
             else:
                 point_colors = data.loc[mask, color_on]
 
@@ -336,30 +490,41 @@ def plot_tm_score(
             for cat, marker in marker_map.items()
         ]
 
-        ax.legend(
-            handles=shape_handles,
-            title=f"{shape_on} shape values:",
-            loc="upper center",
-            bbox_to_anchor=(0.5, -0.15),
-            ncol=len(shape_handles),
-            fontsize=font_size + 2,
-            title_fontproperties=FontProperties(weight="bold", size=font_size + 3)
-        )
+        shape_handles, shape_ncol = _arrange_legend(shape_handles, legend_layout)
+        legend_specs.append({
+            "handles": shape_handles,
+            "title": f"{shape_on} shape values:",
+            "ncol": shape_ncol,
+            "loc": "upper center",
+            "bbox_to_anchor": (0.5, -0.15),
+        })
+    elif color_is_categorical:
+        # One scatter per category so `opacity` may be a scalar or a list/tuple
+        # aligned to the SORTED categories (same convention as `colors`).
+        for i, cat in enumerate(color_categories):
+            mask = data[color_on] == cat
+            cat_alpha = opacity[i] if isinstance(opacity, (list, tuple, np.ndarray)) else opacity
+            ax.scatter(
+                data.loc[mask, x_col_name],
+                data.loc[mask, y_col_name],
+                c=category_color_map[cat],
+                s=30,
+                edgecolors="black",
+                linewidths=0.375,
+                alpha=cat_alpha,
+            )
     else:
         if literal_colors:
             c_vals = list(data[color_on])
             cmap, norm = None, None
         elif color_on == "nseq":
-            c_vals = [depth_color(d) for d in data[color_on]]
-            cmap, norm = None, None
-        elif color_is_categorical:
-            c_vals = [category_color_map[v] for v in data[color_on]]
+            c_vals = [depth_color(d, colormap) for d in data[color_on]]
             cmap, norm = None, None
         else:
-            unique_vals = np.sort(data[color_on].unique())
-            c_vals = [np.where(unique_vals == v)[0][0] for v in data[color_on]]
-            cmap = "okabe_ito"
-            norm = mcolors.BoundaryNorm(np.arange(-0.5, len(unique_vals) + 0.5), plt.cm.okabe_ito.N)
+            unique_vals = sorted(data[color_on].unique(), key=_natural_sort_key)
+            c_vals = [unique_vals.index(v) for v in data[color_on]]
+            cmap = colormap
+            norm = mcolors.BoundaryNorm(np.arange(-0.5, len(unique_vals) + 0.5), cmap_obj.N)
 
         scatter = ax.scatter(
             data[x_col_name],
@@ -373,34 +538,33 @@ def plot_tm_score(
             norm=norm
         )
 
-    x_label = "inward-facing" if structure_type == "conformational" else "inactive"
-    y_label = "outward-facing" if structure_type == "conformational" else "active"
+    if structure_type == "conformational":
+        x_label = "IF Conf."
+        y_label = "OF Conf."
+    else:
+        x_label = "Inactive Conf."
+        y_label = "Active Conf."
+
+    xlabel = x_axis_title if x_axis_title is not None else f"TM-Score: Pred vs {x_label}"
+    ylabel = y_axis_title if y_axis_title is not None else f"TM-Score: Pred vs {y_label}"
 
     ax.set_xlabel(
-        f"Similarity to {x_label} conformation (TM-score)",
-        fontsize=font_size + 1,
+        xlabel,
+        fontsize=axis_title_size,
         labelpad=font_size + 4,
         fontweight="bold"
     )
 
     ax.set_ylabel(
-        f"Similarity to {y_label} conformation (TM-score)",
-        fontsize=font_size + 1,
+        ylabel,
+        fontsize=axis_title_size,
         labelpad=font_size + 4,
         fontweight="bold"
     )
 
-    ax.xaxis.set_major_locator(MaxNLocator(nbins=6))
-    ax.yaxis.set_major_locator(MaxNLocator(nbins=6))
-
     ax.tick_params(axis="both", labelsize=font_size + 3)
     ax.set_aspect("equal", adjustable="box")
     ax.set_facecolor("white")
-
-    for tick in ax.get_xticklabels():
-        tick.set_fontweight('bold')
-    for tick in ax.get_yticklabels():
-        tick.set_fontweight('bold')
 
     ax.spines["top"].set_visible(True)
     ax.spines["right"].set_visible(True)
@@ -414,12 +578,11 @@ def plot_tm_score(
         plt.axvline(x=reference_tm, c="gray", linestyle="--")
         plt.axhline(y=reference_tm, c="gray", linestyle="--")
 
-    unique_depths = np.sort(data[color_on].unique())
+    unique_depths = sorted(data[color_on].unique(), key=_natural_sort_key)
 
     if literal_colors:
         depth_text = f"{', '.join([str(x) for x in np.sort(data['nseq'].unique()).tolist()])}"
         if legend_entries:
-            legend_fs = font_size + 1 if legend_font_size is None else legend_font_size
             handles = [
                 Line2D(
                     [0], [0],
@@ -427,30 +590,30 @@ def plot_tm_score(
                     linestyle="",
                     markerfacecolor=color,
                     markeredgecolor="black",
-                    markersize=legend_fs - 3,
+                    markersize=legend_marker_size,
                     label=str(label),
                 )
                 for label, color in legend_entries
             ]
-            ax.legend(
-                handles=handles,
-                title=legend_title if legend_title is not None else "",
-                loc="center left",
-                bbox_to_anchor=(1.02, 0.5),
-                fontsize=legend_fs,
-                title_fontproperties=FontProperties(weight="bold", size=legend_fs + 1),
-            )
+            handles, entries_ncol = _arrange_legend(handles, legend_layout)
+            legend_specs.append({
+                "handles": handles,
+                "title": legend_title if legend_title is not None else "",
+                "ncol": entries_ncol,
+                "loc": "center left",
+                "bbox_to_anchor": (1.02, 0.5),
+            })
     elif color_on == "nseq":
         if len(unique_depths) > 1:
             depth_text = ", ".join([str(x) for x in unique_depths])
 
-            used_colors = [depth_color(d) for d in unique_depths]
-            cmap = mcolors.ListedColormap(used_colors)
+            used_colors = [depth_color(d, colormap) for d in unique_depths]
+            legend_cmap = mcolors.ListedColormap(used_colors)
 
             bounds = np.arange(len(unique_depths) + 1)
-            norm = mcolors.BoundaryNorm(bounds, cmap.N)
+            legend_norm = mcolors.BoundaryNorm(bounds, legend_cmap.N)
 
-            sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+            sm = plt.cm.ScalarMappable(cmap=legend_cmap, norm=legend_norm)
             sm.set_array([])
 
             cbar = plt.colorbar(sm, ax=ax)
@@ -475,11 +638,8 @@ def plot_tm_score(
         else:
             depth_text = f"{unique_depths[0]}"
     elif color_is_categorical:
-        depth_text = f"{', '.join([str(x) for x in np.sort(data["nseq"].unique()).tolist()])}"
-
-        # legend text/marker size; defaults to font_size + 1, but callers can
-        # enlarge just the legend via legend_font_size without touching the axes.
-        legend_fs = font_size + 1 if legend_font_size is None else legend_font_size
+        sorted_nseq = sorted(data["nseq"].unique(), key=_natural_sort_key)
+        depth_text = f"{', '.join([str(x) for x in sorted_nseq])}"
 
         color_handles = [
             Line2D(
@@ -488,27 +648,29 @@ def plot_tm_score(
                 linestyle="",
                 markerfacecolor=category_color_map[cat],
                 markeredgecolor="black",
-                markersize=legend_fs - 3,
-                label=str(cat),
+                markersize=legend_marker_size,
+                label=(
+                    legend_labels[i]
+                    if legend_labels is not None and i < len(legend_labels)
+                    else str(cat)
+                ),
             )
-            for cat in color_categories
+            for i, cat in enumerate(color_categories)
         ]
 
-        # A shape legend may already sit at the bottom; keep it and add the
-        # color legend on the right so both are visible.
-        existing_legend = ax.get_legend()
-        color_legend = ax.legend(
-            handles=color_handles,
-            title=f"{color_on}:",
-            loc="center left",
-            bbox_to_anchor=(1.02, 0.5),
-            fontsize=legend_fs,
-            title_fontproperties=FontProperties(weight="bold", size=legend_fs + 1),
-        )
-        if existing_legend is not None:
-            ax.add_artist(existing_legend)
+        # A shape legend may already have been collected; both are rendered together
+        # below (see `legend_specs`), so a shape + colour legend stay visible at once.
+        color_handles, color_ncol = _arrange_legend(color_handles, legend_layout)
+        legend_specs.append({
+            "handles": color_handles,
+            "title": legend_title if legend_title is not None else f"{color_on}:",
+            "ncol": color_ncol,
+            "loc": "center left",
+            "bbox_to_anchor": (1.02, 0.5),
+        })
     else:
-        depth_text = f"{', '.join([str(x) for x in np.sort(data["nseq"].unique()).tolist()])}"
+        sorted_nseq = sorted(data["nseq"].unique(), key=_natural_sort_key)
+        depth_text = f"{', '.join([str(x) for x in sorted_nseq])}"
         cbar = plt.colorbar(scatter, ax=ax)
         cbar.set_label(
             color_on,
@@ -516,7 +678,7 @@ def plot_tm_score(
             fontweight="bold",
             labelpad=font_size + 1
         )
-        unique_vals = np.sort(data[color_on].unique())
+        unique_vals = sorted(data[color_on].unique(), key=_natural_sort_key)
         cbar.set_ticks(np.arange(len(unique_vals)))
         cbar.set_ticklabels([str(int(v)) for v in unique_vals])
 
@@ -529,13 +691,33 @@ def plot_tm_score(
             ax.set_ylim(axis_bounds[2], axis_bounds[3])
     ax.set_aspect("auto", adjustable="box")
 
-    if title is not None:
-        plt.title(title, fontsize=font_size + 5, weight="bold", pad=font_size + 7)
+    # Custom tick grid aligned to `tick_anchor` with spacing `tick_size`, filling the
+    # whole (already-limited) axis range on both x and y; otherwise use the default
+    # rounded-ticks locator that always keeps 1.0 labelled.
+    if tick_anchor is not None and tick_size is not None:
+        for set_ticks, lim in [(ax.set_xticks, ax.get_xlim()), (ax.set_yticks, ax.get_ylim())]:
+            low, high = min(lim), max(lim)
+            k_min = int(np.ceil((low - tick_anchor) / tick_size))
+            k_max = int(np.floor((high - tick_anchor) / tick_size))
+            ticks = np.round(tick_anchor + tick_size * np.arange(k_min, k_max + 1), 8)
+            set_ticks(ticks)
     else:
-        title = f"{protein} | Depth: {depth_text}"
-        if experiment_name is not None:
-            title = "Experiment: " + experiment_name + "\n" + title
-        plt.title(title, fontsize=font_size + 5, weight="bold", pad=font_size + 7)
+        _round_ticks_with_one(ax, "x")
+        _round_ticks_with_one(ax, "y")
+
+    for tick in ax.get_xticklabels():
+        tick.set_fontweight('bold')
+    for tick in ax.get_yticklabels():
+        tick.set_fontweight('bold')
+
+    if show_title:
+        if title is not None:
+            plt.title(title, fontsize=font_size + 5, weight="bold", pad=font_size + 7)
+        else:
+            title = f"{protein} | Depth: {depth_text}"
+            if experiment_name is not None:
+                title = "Experiment: " + experiment_name + "\n" + title
+            plt.title(title, fontsize=font_size + 5, weight="bold", pad=font_size + 7)
 
     if output_dir is not None:
         if output_dir[-1] != "/":
@@ -544,12 +726,46 @@ def plot_tm_score(
             save_file_name = output_dir + save_file_name
     save_file_name = save_file_name if save_file_name is not None else f"{output_dir}{protein}.png"
 
-    plt.savefig(
+    def _legend_kwargs(spec):
+        return dict(
+            handles=spec["handles"],
+            title=spec["title"],
+            ncol=spec["ncol"],
+            fontsize=legend_text_size,
+            title_fontproperties=FontProperties(weight="bold", size=legend_title_size),
+        )
+
+    # "inline": draw the legend(s) on the plot. Multiple legends on one axes require
+    # add_artist on all but the last, otherwise each ax.legend() overwrites the previous.
+    if legend_specs and legend_mode == "inline":
+        for i, spec in enumerate(legend_specs):
+            leg = ax.legend(
+                loc=spec["loc"],
+                bbox_to_anchor=spec["bbox_to_anchor"],
+                **_legend_kwargs(spec),
+            )
+            if i != len(legend_specs) - 1:
+                ax.add_artist(leg)
+
+    fig.savefig(
         save_file_name,
         dpi=300,
         bbox_inches="tight"
     )
-    plt.close()
+
+    # "separate": export each legend to its own "<name>_legend[_i]<ext>" file.
+    if legend_specs and legend_mode == "separate":
+        p = Path(save_file_name)
+        for i, spec in enumerate(legend_specs):
+            suffix = "_legend" if len(legend_specs) == 1 else f"_legend_{i}"
+            legend_path = str(p.with_name(f"{p.stem}{suffix}{p.suffix}"))
+            fig_legend = plt.figure(figsize=(4, 3), dpi=300)
+            fig_legend.legend(loc="center", **_legend_kwargs(spec))
+            fig_legend.savefig(legend_path, dpi=300, bbox_inches="tight")
+            plt.close(fig_legend)
+            console.print(f"  [green]saved legend[/] {legend_path}")
+
+    plt.close(fig)
 
 
 def combine_plots(
@@ -565,8 +781,33 @@ def combine_plots(
         font_size: int = 6,
         opacity: float = 1,
         color_on: str = None,
-        shape_on: str = None
+        shape_on: str = None,
+        colormap: str = "okabe_ito",
+        legend_font_size: int = None,
+        literal_colors: bool = False,
+        legend_entries: list = None,
+        legend_title: str = None,
+        legend_labels: list = None,
+        legend_layout: str = "auto",
+        tick_anchor: float = None,
+        tick_size: float = None,
+        x_axis_title: str = None,
+        y_axis_title: str = None,
+        axis_title_fontsize: float = None,
+        legend_title_fontsize: float = None,
+        legend_text_fontsize: float = None,
+        colors: list = None,
+        show_title: bool = True,
+        legend_mode: str = "inline"
 ) -> None:
+    """
+    :param colormap: name of the matplotlib colormap to use for coloring
+            points (e.g. "okabe_ito", "viridis", "plasma", ...), forwarded
+            to plot_tm_score for the combined plot.
+
+    All other keyword arguments are forwarded verbatim to ``plot_tm_score``; see
+    its docstring for the styling knobs (font sizes, legend layout/mode, etc.).
+    """
     dfs = []
     ref_cols = None
 
@@ -598,19 +839,78 @@ def combine_plots(
     print("Saved COMBINED file to", filename)
 
     plot_tm_score(
-        filename,
-        save_file_name,
-        protein,
-        title,
-        limit_axis,
-        output_dir,
-        experiment_name,
-        axis_bounds,
-        plot_guidelines,
-        font_size,
-        opacity,
-        color_on,
-        shape_on
+        data_file=filename,
+        save_file_name=save_file_name,
+        protein=protein,
+        title=title,
+        limit_axis=limit_axis,
+        output_dir=output_dir,
+        experiment_name=experiment_name,
+        axis_bounds=axis_bounds,
+        plot_guidelines=plot_guidelines,
+        font_size=font_size,
+        opacity=opacity,
+        color_on=color_on,
+        shape_on=shape_on,
+        colormap=colormap,
+        legend_font_size=legend_font_size,
+        literal_colors=literal_colors,
+        legend_entries=legend_entries,
+        legend_title=legend_title,
+        legend_labels=legend_labels,
+        legend_layout=legend_layout,
+        tick_anchor=tick_anchor,
+        tick_size=tick_size,
+        x_axis_title=x_axis_title,
+        y_axis_title=y_axis_title,
+        axis_title_fontsize=axis_title_fontsize,
+        legend_title_fontsize=legend_title_fontsize,
+        legend_text_fontsize=legend_text_fontsize,
+        colors=colors,
+        show_title=show_title,
+        legend_mode=legend_mode,
+    )
+
+
+def _add_style_args(parser):
+    """Shared presentation/styling flags for the plotting subcommands."""
+    parser.add_argument("--axis_title_fontsize", type=float, default=None)
+    parser.add_argument("--legend_title_fontsize", type=float, default=None)
+    parser.add_argument("--legend_text_fontsize", type=float, default=None)
+    parser.add_argument("--legend_title", type=str, default=None)
+    parser.add_argument("--legend_labels", nargs="+", type=str, default=None)
+    parser.add_argument(
+        "--legend_layout", type=str, default="auto", choices=["auto", "row", "column"]
+    )
+    parser.add_argument(
+        "--legend_mode", type=str, default="inline", choices=["inline", "separate", "none"]
+    )
+    parser.add_argument("--x_axis_title", type=str, default=None)
+    parser.add_argument("--y_axis_title", type=str, default=None)
+    parser.add_argument("--tick_anchor", type=float, default=None)
+    parser.add_argument("--tick_size", type=float, default=None)
+    parser.add_argument("--colors", nargs="+", type=str, default=None)
+    parser.add_argument(
+        "--show_title", type=lambda x: x.lower() == "true", default=True
+    )
+
+
+def _style_kwargs(args):
+    """Collect the shared styling flags into kwargs for plot_tm_score/combine_plots."""
+    return dict(
+        legend_title=args.legend_title,
+        legend_labels=args.legend_labels,
+        legend_layout=args.legend_layout,
+        tick_anchor=args.tick_anchor,
+        tick_size=args.tick_size,
+        x_axis_title=args.x_axis_title,
+        y_axis_title=args.y_axis_title,
+        axis_title_fontsize=args.axis_title_fontsize,
+        legend_title_fontsize=args.legend_title_fontsize,
+        legend_text_fontsize=args.legend_text_fontsize,
+        colors=args.colors,
+        show_title=args.show_title,
+        legend_mode=args.legend_mode,
     )
 
 
@@ -662,6 +962,14 @@ def main():
     combine_parser.add_argument("--opacity", type=float, default=1)
     combine_parser.add_argument("--color_on", type=str, default=None)
     combine_parser.add_argument("--shape_on", type=str, default=None)
+    combine_parser.add_argument(
+        "--colormap",
+        type=str,
+        default="okabe_ito",
+        help="Name of the matplotlib colormap/color palette to use for point colors "
+             "(e.g. okabe_ito, viridis, plasma, tab10)."
+    )
+    _add_style_args(combine_parser)
 
     plot_parser = subparsers.add_parser("plot", help="Plot TM-score results from CSV")
     plot_parser.add_argument("--data_file", type=str, required=True)
@@ -693,6 +1001,14 @@ def main():
     plot_parser.add_argument("--opacity", type=float, default=1)
     plot_parser.add_argument("--color_on", type=str, default=None)
     plot_parser.add_argument("--shape_on", type=str, default=None)
+    plot_parser.add_argument(
+        "--colormap",
+        type=str,
+        default="okabe_ito",
+        help="Name of the matplotlib colormap/color palette to use for point colors "
+             "(e.g. okabe_ito, viridis, plasma, tab10)."
+    )
+    _add_style_args(plot_parser)
 
     full_parser = subparsers.add_parser("all", help="Run calc + plot")
     full_parser.add_argument("--protein", type=str, default=None)
@@ -727,6 +1043,14 @@ def main():
     full_parser.add_argument("--opacity", type=float, default=1)
     full_parser.add_argument("--color_on", type=str, default=None)
     full_parser.add_argument("--shape_on", type=str, default=None)
+    full_parser.add_argument(
+        "--colormap",
+        type=str,
+        default="okabe_ito",
+        help="Name of the matplotlib colormap/color palette to use for point colors "
+             "(e.g. okabe_ito, viridis, plasma, tab10)."
+    )
+    _add_style_args(full_parser)
 
     args = parser.parse_args()
     assert args.limit_axis in [True, False]
@@ -743,6 +1067,7 @@ def main():
             model=args.model,
             seed=args.seed
         )
+        console.print(f"  [green]wrote[/] {csv_path}")
     elif args.command == "combine":
         combine_plots(
             data_files=args.data_files,
@@ -752,13 +1077,15 @@ def main():
             limit_axis=args.limit_axis,
             output_dir=args.output_dir,
             axis_bounds=args.axis_bounds,
-            plot_guidelines=args.plot_guidelines,
+            plot_guidelines=args.guidelines,
             font_size=args.font_size,
             opacity=args.opacity,
             color_on=args.color_on,
-            shape_on=args.shape_on
+            shape_on=args.shape_on,
+            colormap=args.colormap,
+            **_style_kwargs(args)
         )
-        console.print(f"  [green]wrote[/] {csv_path}")
+        console.print("  [green]combine + plot complete[/]")
     elif args.command == "plot":
         plot_tm_score(
             data_file=args.data_file,
@@ -768,11 +1095,13 @@ def main():
             limit_axis=args.limit_axis,
             output_dir=args.output_dir,
             axis_bounds=args.axis_bounds,
-            plot_guidelines=args.plot_guidelines,
+            plot_guidelines=args.guidelines,
             font_size=args.font_size,
             opacity=args.opacity,
             color_on=args.color_on,
-            shape_on=args.shape_on
+            shape_on=args.shape_on,
+            colormap=args.colormap,
+            **_style_kwargs(args)
         )
         console.print("  [green]plot complete[/]")
     elif args.command == "all":
@@ -787,18 +1116,20 @@ def main():
             seed=args.seed
         )
         plot_tm_score(
-            data_file=args.data_file,
+            data_file=args.output_file,
             save_file_name=args.save_file,
             protein=args.protein,
             title=args.title,
             limit_axis=args.limit_axis,
             output_dir=args.output_dir,
             axis_bounds=args.axis_bounds,
-            plot_guidelines=args.plot_guidelines,
+            plot_guidelines=args.guidelines,
             font_size=args.font_size,
             opacity=args.opacity,
             color_on=args.color_on,
-            shape_on=args.shape_on
+            shape_on=args.shape_on,
+            colormap=args.colormap,
+            **_style_kwargs(args)
         )
         console.print("  [green]calc + plot complete[/]")
 

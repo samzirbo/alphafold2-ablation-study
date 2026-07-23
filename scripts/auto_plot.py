@@ -43,7 +43,9 @@ def autoplot_tmscore(
         color_on="nseq",
         shape_on=None,
         rerun="missing",
-        file_name_prefix = ""
+        file_name_prefix = "",
+        plot_title=None,
+        colormap="okabe_ito",
 ):
     if rerun not in rerun_choices:
         raise ValueError(f"rerun must be one of {rerun_choices}, got {rerun!r}")
@@ -177,6 +179,8 @@ def autoplot_tmscore(
                             opacity=opacity,
                             color_on=color_on,
                             shape_on=shape_on,
+                            title=plot_title,
+                            colormap=colormap,
                             )
                         stats["plots"] += 1
                         experiment_stats["plots"] += 1
@@ -222,6 +226,8 @@ def autoplot_tmscore_combined(
         shape_on=None,
         rerun="missing",
         file_name_prefix="",
+        plot_title=None,
+        colormap="okabe_ito",
 ):
     """Overlay several experiments of the same protein in a single TM-score plot.
 
@@ -236,6 +242,8 @@ def autoplot_tmscore_combined(
     :param combined_label: sub-folder name under ``plots/TM_Score/combined``
         where the combined plots and CSVs are written (lets you keep several
         different experiment groupings side by side).
+    :param colormap: name of the matplotlib colormap/color palette to use
+        for coloring points (e.g. "okabe_ito", "viridis", "plasma", ...).
     """
     if rerun not in rerun_choices:
         raise ValueError(f"rerun must be one of {rerun_choices}, got {rerun!r}")
@@ -382,6 +390,8 @@ def autoplot_tmscore_combined(
                     opacity=opacity,
                     color_on=color_on,
                     shape_on=shape_on,
+                    title=plot_title,
+                    colormap=colormap,
                 )
                 stats["plots"] += 1
             except Exception as e:
@@ -596,6 +606,19 @@ if __name__ == "__main__":
         default="combined",
         help="tm_combined only: sub-folder name for the combined outputs"
     )
+    parser.add_argument(
+        "--plot_title",
+        type=str,
+        default=None,
+        help="Title of the plot"
+    )
+    parser.add_argument(
+        "--colormap",
+        type=str,
+        default="okabe_ito",
+        help="Name of the matplotlib colormap/color palette to use for point colors "
+             "(e.g. okabe_ito, viridis, plasma, tab10)."
+    )
 
     args = parser.parse_args()
 
@@ -614,7 +637,9 @@ if __name__ == "__main__":
             color_on=args.color_on,
             shape_on=args.shape_on,
             rerun=args.rerun,
-            file_name_prefix=args.file_name_prefix
+            file_name_prefix=args.file_name_prefix,
+            plot_title=args.plot_title,
+            colormap=args.colormap
         )
     elif args.plot_type == "tm_combined":
         autoplot_tmscore_combined(
@@ -632,7 +657,9 @@ if __name__ == "__main__":
             color_on=args.color_on if args.color_on else "experiment",
             shape_on=args.shape_on,
             rerun=args.rerun,
-            file_name_prefix=args.file_name_prefix
+            file_name_prefix=args.file_name_prefix,
+            plot_title=args.plot_title,
+            colormap=args.colormap
         )
     elif args.plot_type == "pca":
         autoplot_pca(

@@ -81,9 +81,17 @@ from rich.progress import (
 # Support both ``python ./scripts/cluster_conformations.py`` (scripts/ on path)
 # and ``python -m scripts.cluster_conformations`` (repo root on path).
 try:
-    from plot_tmscore import calc_tm_score_folders, plot_tm_score
+    from plot_tmscore import (
+        calc_tm_score_folders,
+        plot_tm_score,
+        TM_ANNOTATION_FONTSIZES,
+    )
 except ImportError:
-    from scripts.plot_tmscore import calc_tm_score_folders, plot_tm_score
+    from scripts.plot_tmscore import (
+        calc_tm_score_folders,
+        plot_tm_score,
+        TM_ANNOTATION_FONTSIZES,
+    )
 
 console = Console()
 
@@ -715,7 +723,7 @@ def cluster_and_plot(
         experiment_name=f"{run_name} (clustered)",
         font_size=font_size,
         color_on="cluster",
-        legend_font_size=font_size + 6,
+        **TM_ANNOTATION_FONTSIZES,
     )
 
     # shaded scatter: each point gets its prediction's unique shade (matching the
@@ -738,7 +746,7 @@ def cluster_and_plot(
         literal_colors=True,
         legend_entries=[(cluster_label(c), base_of[c]) for c in sorted(base_of)],
         legend_title="cluster",
-        legend_font_size=font_size + 6,
+        **TM_ANNOTATION_FONTSIZES,
     )
     console.print(f"  [green]done[/] -> {out}")
 

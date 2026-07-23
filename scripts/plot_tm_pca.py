@@ -60,12 +60,14 @@ try:
         get_reference_files,
         get_axis_lower_limit,
         __calc_tm_score,
+        TM_ANNOTATION_FONTSIZES,
     )
 except ImportError:
     from scripts.plot_tmscore import (
         get_reference_files,
         get_axis_lower_limit,
         __calc_tm_score,
+        TM_ANNOTATION_FONTSIZES,
     )
 
 console = Console()
@@ -222,6 +224,13 @@ def plot_tm_pca(
     """
     gradient_ref_index = {"state_1": 0, "state_2": 1}[gradient_reference]
 
+    # Shared annotation sizes, matching plot_tm_score, so this figure's TM-score
+    # panel is labelled like the standalone TM-score plots. `font_size` still
+    # drives the tick labels, panel titles and PCA-specific text.
+    axis_title_fs = TM_ANNOTATION_FONTSIZES["axis_title_fontsize"]
+    legend_text_fs = TM_ANNOTATION_FONTSIZES["legend_text_fontsize"]
+    legend_title_fs = TM_ANNOTATION_FONTSIZES["legend_title_fontsize"]
+
     df, explained, reference_labels = compute_tm_and_pca(
         protein, reference_folder, target_folder, metadata_file, gradient_ref_index
     )
@@ -281,13 +290,13 @@ def plot_tm_pca(
         ax_tm.axhline(y=reference_tm, c="gray", linestyle="--", linewidth=1)
 
     ax_tm.set_xlabel(
-        f"Similarity to {reference_labels[0]} conformation (TM-score)",
-        fontsize=font_size,
+        f"TM-Score: Pred vs {reference_labels[0]} Conf.",
+        fontsize=axis_title_fs,
         fontweight="bold",
     )
     ax_tm.set_ylabel(
-        f"Similarity to {reference_labels[1]} conformation (TM-score)",
-        fontsize=font_size,
+        f"TM-Score: Pred vs {reference_labels[1]} Conf.",
+        fontsize=axis_title_fs,
         fontweight="bold",
     )
     ax_tm.set_title(
@@ -320,10 +329,10 @@ def plot_tm_pca(
             linewidths=0.5,
         )
     ax_pca.set_xlabel(
-        f"PC1 ({100 * explained[0]:.1f}%)", fontsize=font_size, fontweight="bold"
+        f"PC1 ({100 * explained[0]:.1f}%)", fontsize=axis_title_fs, fontweight="bold"
     )
     ax_pca.set_ylabel(
-        f"PC2 ({100 * explained[1]:.1f}%)", fontsize=font_size, fontweight="bold"
+        f"PC2 ({100 * explained[1]:.1f}%)", fontsize=axis_title_fs, fontweight="bold"
     )
     ax_pca.set_title(
         f"{experiment_name} | {protein} | PCA of Cα coordinates",
@@ -345,9 +354,9 @@ def plot_tm_pca(
         cax = ax_pca.inset_axes([1.04, 0.0, 0.035, 1.0])
         cbar = fig.colorbar(sm, cax=cax)
         cbar.set_label(
-            f"TM-score to {gradient_label} conformation",
+            f"TM-Score: Pred vs {gradient_label} Conf.",
             fontweight="bold",
-            fontsize=font_size,
+            fontsize=axis_title_fs,
         )
         cbar.ax.tick_params(labelsize=font_size)
 
@@ -360,7 +369,7 @@ def plot_tm_pca(
             linestyle="None",
             markerfacecolor="lightgray",
             markeredgecolor="black",
-            markersize=font_size * 0.6,
+            markersize=legend_text_fs * 0.6,
             label=f"Model {m}",
         )
         for m in models
@@ -381,8 +390,8 @@ def plot_tm_pca(
         loc="upper center",
         bbox_to_anchor=(0.5, 0.08),
         ncol=len(model_handles),
-        prop={"size": font_size, "weight": "bold"},
-        title_fontproperties={"weight": "bold", "size": font_size + 1},
+        prop={"size": legend_text_fs, "weight": "bold"},
+        title_fontproperties={"weight": "bold", "size": legend_title_fs},
     )
 
     fig.subplots_adjust(bottom=0.18)
