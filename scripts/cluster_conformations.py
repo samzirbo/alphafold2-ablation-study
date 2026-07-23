@@ -34,6 +34,22 @@ Run from the repository root::
         --all_experiments_in ./results --sample 10 --output_dir ./analysis/clustering
 
 Omit ``--protein`` to process every protein found in the experiment folder(s).
+
+Caching
+-------
+The all-to-all TM-score distance matrix -- the only expensive artifact with no
+cache elsewhere -- is computed once and written to the output folder as
+``<protein>_distance_matrix.npy`` alongside ``<protein>_manifest.csv`` (the
+ordered ``(experiment, model, seed)`` bookkeeping) and ``<protein>_cache_meta.json``
+(the inputs it was built from). Re-running the same command reuses that cache, so
+changing the colouring, axes, labels or ``--n_clusters`` re-plots in seconds
+rather than recomputing the matrix. Pass ``--force`` to recompute it; changing
+the pooled experiments, ``--sample`` or ``--random_seed`` invalidates it
+automatically.
+
+The per-prediction scores against the two references are *not* recomputed here:
+they are read from the shared ``plots/TM_Score/<experiment>/<protein>.csv`` cache
+written by ``auto_plot`` / ``plot_tmscore`` (and computed into it on a miss).
 """
 
 import argparse
@@ -47,6 +63,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from matplotlib.colors import to_hex
+from matplotlib.ticker import FuncFormatter, MaxNLocator
 from scipy.cluster.hierarchy import dendrogram, fcluster, linkage
 from scipy.spatial.distance import squareform
 from tmtools import tm_align
@@ -76,6 +93,18 @@ EXCLUDED_DIRS = {"archive", "plots"}
 # colour for dendrogram links that join two different clusters (above the cut)
 _MIXED_LINK_COLOR = "#b0b0b0"
 
+# one sequential colormap per cluster for the "shaded" visualization: every
+# prediction in a cluster gets a distinct shade of the cluster's hue. Assigned
+# to clusters in sorted-id order and cycled if there are more clusters than maps.
+_SHADE_CMAPS = ["Blues", "Reds", "Greens", "Purples", "Oranges", "PuRd", "GnBu", "YlOrBr"]
+# sample the colormap within this span; kept broad so shades are easy to tell
+# apart, but clear of the near-white low end (invisible points) and near-black
+# high end (hue lost against the black marker edge).
+_SHADE_LO, _SHADE_HI = 0.30, 0.95
+
+# line width for the dendrogram links + leaf stems
+_LINE_WIDTH = 2.2
+
 
 def cluster_label(c) -> str:
     """Label for a cluster, used for both the CSV/legend text and palette keys."""
@@ -96,6 +125,43 @@ def cluster_palette(cluster_labels) -> dict:
     okabe = plt.cm.okabe_ito
     categories = np.sort([cluster_label(c) for c in {int(x) for x in cluster_labels}])
     return {cat: to_hex(okabe(i % okabe.N)) for i, cat in enumerate(categories)}
+
+
+def shade_palette(
+    Z: np.ndarray, labels: np.ndarray
+) -> tuple[dict, dict]:
+    """
+    Per-prediction shade colours for the "shaded" visualization.
+
+    Each cluster is given one hue (a sequential colormap); every prediction in
+    the cluster gets a distinct shade of that hue. Shades are assigned along the
+    dendrogram's left-to-right leaf order, so within a cluster the gradient
+    follows the tree layout.
+
+    Returns ``(shade_of, base_of)`` where ``shade_of`` maps a leaf index (the
+    row/col of the distance matrix) to its unique hex shade, and ``base_of`` maps
+    a cluster id to a single representative hex colour (for a compact legend).
+    """
+    # leaf order without drawing; indices are the observation (leaf) ids
+    leaf_order = dendrogram(Z, no_plot=True)["leaves"]
+
+    members_in_order: dict[int, list[int]] = {}
+    for idx in leaf_order:
+        members_in_order.setdefault(int(labels[idx]), []).append(idx)
+
+    shade_of: dict[int, str] = {}
+    base_of: dict[int, str] = {}
+    for i, c in enumerate(sorted(members_in_order)):
+        cmap = plt.get_cmap(_SHADE_CMAPS[i % len(_SHADE_CMAPS)])
+        members = members_in_order[c]
+        if len(members) == 1:
+            positions = [(_SHADE_LO + _SHADE_HI) / 2.0]
+        else:
+            positions = np.linspace(_SHADE_LO, _SHADE_HI, len(members))
+        for idx, p in zip(members, positions):
+            shade_of[idx] = to_hex(cmap(p))
+        base_of[c] = to_hex(cmap((_SHADE_LO + _SHADE_HI) / 2.0))
+    return shade_of, base_of
 
 
 def _model_seed(target_file: str) -> tuple[int, int]:
@@ -272,8 +338,19 @@ def plot_dendrogram(
     experiment_name: str,
     save_path: str,
     font_size: int = 8,
+    tm_axis: tuple[float, float] | None = None,
+    link_leaf_colors: dict | None = None,
+    label_colors: dict | None = None,
 ) -> None:
-    """Draw the dendrogram, coloured per cluster to match the TM-score scatter."""
+    """
+    Draw the dendrogram, coloured per cluster to match the TM-score scatter.
+
+    ``link_leaf_colors`` / ``label_colors`` optionally override the per-leaf
+    colours used for the links and the tick labels respectively (keyed by leaf
+    index). Both default to the per-cluster palette. Passing a per-cluster base
+    colour for the links and a per-prediction shade for the labels yields the
+    "shaded" variant where every prediction is a distinct shade of its cluster.
+    """
     # height at which the tree has exactly n_clusters branches: midpoint between
     # the (n_clusters-1)-th and n_clusters-th last merges.
     if n_clusters < len(Z) + 1:
@@ -291,40 +368,96 @@ def plot_dendrogram(
     # the cluster colour when its whole subtree is one cluster, else grey. This
     # ties link colours to the fcluster ids (same ids the scatter colours by).
     palette = cluster_palette(cluster_labels)
-    leaf_color = {i: palette[cluster_label(cluster_labels[i])] for i in range(n)}
+    default_leaf_color = {i: palette[cluster_label(cluster_labels[i])] for i in range(n)}
+    link_leaf_color = link_leaf_colors if link_leaf_colors is not None else default_leaf_color
+    label_leaf_color = label_colors if label_colors is not None else default_leaf_color
     link_color = {}
     for i, (a, b) in enumerate(Z[:, :2].astype(int)):
-        ca = link_color[a] if a >= n else leaf_color[a]
-        cb = link_color[b] if b >= n else leaf_color[b]
+        ca = link_color[a] if a >= n else link_leaf_color[a]
+        cb = link_color[b] if b >= n else link_leaf_color[b]
         link_color[i + n] = ca if ca == cb else _MIXED_LINK_COLOR
 
     fig, ax = plt.subplots(figsize=(11, 5), dpi=300)
-    rendered = dendrogram(
-        Z,
-        labels=leaf_labels if show_labels else None,
-        no_labels=not show_labels,
-        link_color_func=lambda k: link_color[k],
-        ax=ax,
-    )
-    # tint the leaf tick labels to match their cluster colour
+    # scipy draws the links at the default line width; bump it via rc_context so
+    # the whole tree is thicker (the overplotted leaf stems below match).
+    with plt.rc_context({"lines.linewidth": _LINE_WIDTH}):
+        rendered = dendrogram(
+            Z,
+            labels=leaf_labels if show_labels else None,
+            no_labels=not show_labels,
+            link_color_func=lambda k: link_color[k],
+            ax=ax,
+        )
+    # tint the leaf tick labels to match their (cluster or per-prediction) colour
     if show_labels:
         for tick, leaf_idx in zip(ax.get_xticklabels(), rendered["leaves"]):
-            tick.set_color(leaf_color[leaf_idx])
+            tick.set_color(label_leaf_color[leaf_idx])
+
+    # Colour each prediction's own vertical leaf stem with its shade. scipy paints
+    # a whole link (U shape) one colour via link_color_func, so the per-prediction
+    # shades can't come from there; instead overplot each leaf stem -- the arm
+    # whose bottom sits at height 0 -- from 0 up to its first merge, in the leaf's
+    # colour. Only done when per-leaf label_colors are given (the shaded variant);
+    # otherwise the stems already match their cluster's link colour.
+    if label_colors is not None:
+        leaves = rendered["leaves"]
+        for xs, ys in zip(rendered["icoord"], rendered["dcoord"]):
+            # xs = [x_left, x_left, x_right, x_right]; ys = [y_left, ymerge, ymerge, y_right]
+            for x_arm, y_bottom, y_top in ((xs[0], ys[0], ys[1]), (xs[3], ys[3], ys[2])):
+                if y_bottom == 0.0:  # this arm descends to a leaf
+                    pos = int(round((x_arm - 5.0) / 10.0))
+                    if 0 <= pos < len(leaves):
+                        ax.plot(
+                            [x_arm, x_arm],
+                            [0.0, y_top],
+                            color=label_leaf_color[leaves[pos]],
+                            linewidth=_LINE_WIDTH,
+                            solid_capstyle="butt",
+                            zorder=3,
+                        )
     # if n_clusters > 1:
     #     ax.axhline(threshold, color="black", linestyle="--", linewidth=0.8)
 
-    ax.set_ylabel("1 - TM-score", fontsize=font_size + 1, fontweight="bold")
-    ax.set_xlabel("prediction", fontsize=font_size + 1, fontweight="bold")
+    # The dendrogram plots merge heights in distance space (height = 1 - TM), so
+    # bottom = height 0 = TM 1. Relabel the ticks as TM-score (1 - height) so the
+    # axis reads as TM-score descending upward, without changing the geometry.
+    # Fewer, larger ticks via MaxNLocator + a formatter that maps height -> TM.
+    ax.yaxis.set_major_locator(MaxNLocator(nbins=5))
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda h, _pos: f"{1 - h:.2f}"))
+
+    ax.set_ylabel("TM-score", fontsize=font_size + 5, fontweight="bold")
+    ax.set_xlabel("prediction", fontsize=font_size + 5, fontweight="bold")
     ax.set_title(
         f"{experiment_name} | {protein} | {n_clusters}-cluster dendrogram",
-        fontsize=font_size + 3,
+        fontsize=font_size + 5,
         fontweight="bold",
     )
     ax.tick_params(axis="x", labelsize=font_size - 1, rotation=90)
-    ax.tick_params(axis="y", labelsize=font_size)
+    ax.tick_params(axis="y", labelsize=font_size + 4)
+
+    # optionally fix the TM-score span shown. The axis is in height space
+    # (height = 1 - TM), so TM range (tm_bottom, tm_top) maps to ylim
+    # (1 - tm_bottom, 1 - tm_top). This may clip or squish the tree, which is
+    # acceptable per the caller's request.
+    if tm_axis is not None:
+        tm_bottom, tm_top = tm_axis
+        ax.set_ylim(1 - tm_bottom, 1 - tm_top)
 
     fig.savefig(save_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
+
+
+def tmscore_cache_csv(folder: str, protein: str) -> Path:
+    """
+    Canonical location of the reference-score cache for one experiment folder,
+    the CSV written by ``auto_plot`` / ``plot_tmscore``:
+    ``<results_root>/plots/TM_Score/<experiment>/<protein>.csv``.
+
+    ``folder`` is an experiment folder like ``results/depth_256``; the cache
+    lives next to it under the sibling ``plots/TM_Score`` tree.
+    """
+    folder = Path(folder)
+    return folder.parent / "plots" / "TM_Score" / folder.name / f"{protein}.csv"
 
 
 def scores_vs_references(
@@ -333,83 +466,178 @@ def scores_vs_references(
     present_experiments: set[str],
     reference_folder: str,
     metadata_file: str,
-    out: str,
 ) -> pd.DataFrame:
     """
     TM-score of every pooled prediction against the two references, one
-    experiment at a time (reusing ``calc_tm_score_folders``), concatenated into a
-    single dataframe with a correct ``experiment`` column.
+    experiment at a time, concatenated into a single dataframe with a correct
+    ``experiment`` column.
+
+    Reuses the shared ``plots/TM_Score/<experiment>/<protein>.csv`` cache
+    produced by ``auto_plot`` / ``plot_tmscore`` when it exists. On a miss the
+    scores are computed with ``calc_tm_score_folders`` straight into that
+    canonical cache location (the same thing ``auto_plot`` does), so nothing is
+    duplicated and the next run -- clustering or plotting -- reuses it.
     """
     frames = []
     for folder in experiment_folders:
         experiment_name = Path(folder).name
         if experiment_name not in present_experiments:
             continue
-        target_folder = os.path.join(folder, protein)
-        tmp_csv = calc_tm_score_folders(
-            protein,
-            reference_folder,
-            target_folder,
-            metadata_file,
-            f"__tmp_{experiment_name}_{protein}.csv",
-            out,
-        )
-        df = pd.read_csv(tmp_csv)
-        # calc_tm_score_folders derives "experiment" from output_dir; overwrite it
-        # with the true source experiment so pooled rows stay distinguishable.
+        cache_csv = tmscore_cache_csv(folder, protein)
+        if not cache_csv.exists():
+            cache_csv.parent.mkdir(parents=True, exist_ok=True)
+            calc_tm_score_folders(
+                protein,
+                reference_folder,
+                os.path.join(folder, protein),
+                metadata_file,
+                f"{protein}.csv",
+                str(cache_csv.parent),
+            )
+        df = pd.read_csv(cache_csv)
+        # the cache's "experiment" column is the folder name by construction, but
+        # set it explicitly so pooled rows stay attributable.
         df["experiment"] = experiment_name
         frames.append(df)
-        os.remove(tmp_csv)
     return pd.concat(frames, ignore_index=True)
 
 
-def cluster_protein(
+# ---------------------------------------------------------------------------
+# Distance-matrix cache
+#
+# The all-to-all TM-score distance matrix is the one genuinely expensive artifact
+# with no cache elsewhere (reference scores are already cached under
+# plots/TM_Score, see scores_vs_references). It is computed once and cached, so
+# re-plotting with different colouring, axes, labels or --n_clusters reuses it
+# and is effectively instant -- clustering, the dendrogram and the scatter are
+# all cheap and re-derived on every run.
+#
+# The cache's canonical order is the pooled `origins` list; each prediction is
+# identified by (experiment, model, seed). That ordered manifest is the "book
+# keeping" that ties the distance-matrix rows, the dendrogram leaves and the
+# scatter rows together, so cluster ids -- and therefore colours -- stay
+# consistent across the dendrogram and the TM-score plot without caching the
+# colours themselves.
+# ---------------------------------------------------------------------------
+
+
+def _cache_paths(out: str, protein: str) -> dict:
+    """Paths of the cached distance-matrix artifacts for ``protein``."""
+    return {
+        "D": os.path.join(out, f"{protein}_distance_matrix.npy"),
+        "manifest": os.path.join(out, f"{protein}_manifest.csv"),
+        "meta": os.path.join(out, f"{protein}_cache_meta.json"),
+    }
+
+
+def _cache_meta(experiment_folders: list[str], sample: int | None, random_seed: int) -> dict:
+    """Inputs that determine the cached matrix; used to auto-invalidate it."""
+    return {
+        "experiment_folders": list(experiment_folders),
+        "sample": sample,
+        "random_seed": random_seed,
+    }
+
+
+def load_matrix_cache(out: str, protein: str, meta: dict):
+    """
+    Load the cached ``(manifest, D)`` for ``protein`` if the artifacts exist and
+    were built from the same inputs (``meta``). Returns ``None`` when there is no
+    valid cache, so the caller recomputes.
+    """
+    paths = _cache_paths(out, protein)
+    if not all(os.path.exists(p) for p in paths.values()):
+        return None
+    with open(paths["meta"]) as fh:
+        if json.load(fh) != meta:
+            return None
+    manifest = pd.read_csv(paths["manifest"])
+    D = np.load(paths["D"])
+    return manifest, D
+
+
+def compute_matrix_cache(
     protein: str,
     experiment_folders: list[str],
-    data_dir: str,
-    output_dir: str,
-    run_name: str,
-    n_clusters: int = 2,
-    font_size: int = 8,
-    sample: int | None = None,
-    rng: random.Random | None = None,
-) -> None:
-    reference_folder = os.path.join(data_dir, protein, "references") + "/"
-    metadata_file = os.path.join(data_dir, "metadata.json")
-
-    out = os.path.join(output_dir, run_name)
-    os.makedirs(out, exist_ok=True)
-
-    console.print(f"[bold cyan]{run_name}[/] | [bold]{protein}[/]")
-
+    out: str,
+    sample: int | None,
+    rng: random.Random,
+    meta: dict,
+):
+    """
+    Pool predictions, compute the all-to-all distance matrix and cache it with
+    its ordering manifest. Returns ``(manifest, D)`` in the canonical
+    ``origins`` order, or ``None`` if fewer than two predictions were pooled.
+    """
     # pool predictions across all requested experiments (optionally subsampled)
     origins = gather_predictions(protein, experiment_folders, sample=sample, rng=rng)
-    if len(origins) < n_clusters:
-        console.print(f"  [yellow]skip[/] only {len(origins)} predictions")
-        return
+    if len(origins) < 2:
+        return None
 
-    experiments = [e for e, _ in origins]
     files = [f for _, f in origins]
-    present_experiments = set(experiments)
-    single_experiment = len(present_experiments) == 1
+    present_experiments = {e for e, _ in origins}
     console.print(
         f"  pooled {len(files)} predictions from {len(present_experiments)} experiment(s)"
     )
 
-    # 1. all-to-all distance matrix over the pooled predictions
+    # canonical manifest: (experiment, model, seed) identifies each prediction;
+    # `order` is its row/column in the distance matrix below.
+    keys = [(exp, *_model_seed(f)) for exp, f in origins]
+    manifest = pd.DataFrame(
+        {
+            "order": range(len(origins)),
+            "experiment": [k[0] for k in keys],
+            "model": [k[1] for k in keys],
+            "seed": [k[2] for k in keys],
+            "pdb_path": files,
+        }
+    )
+
     D = compute_distance_matrix(files)
 
-    # 2. dendrogram clustering -> cut into n_clusters groups
+    paths = _cache_paths(out, protein)
+    np.save(paths["D"], D)
+    manifest.to_csv(paths["manifest"], index=False)
+    with open(paths["meta"], "w") as fh:
+        json.dump(meta, fh, indent=2)
+
+    return manifest, D
+
+
+def cluster_and_plot(
+    protein: str,
+    run_name: str,
+    out: str,
+    manifest: pd.DataFrame,
+    D: np.ndarray,
+    scores: pd.DataFrame,
+    n_clusters: int,
+    font_size: int,
+    tm_axis: tuple[float, float] | None = None,
+) -> None:
+    """
+    The cheap, re-runnable half: cluster the cached distance matrix and draw the
+    dendrogram + TM-score scatter. Everything here is fast and re-derived, so it
+    can be re-run freely to change colouring, axes, labels or ``n_clusters``.
+    """
+    single_experiment = manifest["experiment"].nunique() == 1
+    # canonical order comes from the manifest, matching the rows/cols of D
+    keys = list(
+        zip(
+            manifest["experiment"],
+            manifest["model"].astype(int),
+            manifest["seed"].astype(int),
+        )
+    )
+
+    # dendrogram clustering -> cut into n_clusters groups (cheap; re-derived)
     Z, labels = cluster_distance_matrix(D, n_clusters)
 
-    # (experiment, model, seed) identifies each pooled prediction uniquely
-    keys = [(exp, *_model_seed(f)) for exp, f in origins]
     leaf_labels = [
         f"m{m}s{s}" if single_experiment else f"{exp}:m{m}s{s}"
         for exp, m, s in keys
     ]
 
-    # 3. dendrogram plot
     plot_dendrogram(
         Z,
         leaf_labels,
@@ -419,6 +647,27 @@ def cluster_protein(
         run_name,
         os.path.join(out, f"{protein}_dendrogram.png"),
         font_size=font_size,
+        tm_axis=tm_axis,
+    )
+
+    # "shaded" variant: one hue per cluster, a distinct shade per prediction,
+    # shared between this dendrogram and the scatter below so each leaf can be
+    # matched to its point by colour. Links use the cluster's base hue; the leaf
+    # labels use each prediction's unique shade.
+    shade_of, base_of = shade_palette(Z, labels)
+    link_leaf_colors = {i: base_of[int(labels[i])] for i in range(len(labels))}
+    plot_dendrogram(
+        Z,
+        leaf_labels,
+        labels,
+        n_clusters,
+        protein,
+        run_name,
+        os.path.join(out, f"{protein}_dendrogram_shaded.png"),
+        font_size=font_size,
+        tm_axis=tm_axis,
+        link_leaf_colors=link_leaf_colors,
+        label_colors=shade_of,
     )
 
     # cluster diagnostics (medoids + inter-cluster TM)
@@ -434,26 +683,23 @@ def cluster_protein(
             f"mean inter-cluster TM={info['mean_tm']:.3f}"
         )
 
-    # persist distance matrix + summary for downstream use
+    # human-readable, label-indexed copy of the matrix + the cluster summary
     pd.DataFrame(
         D, index=leaf_labels, columns=leaf_labels
-    ).to_csv(os.path.join(out, f"{protein}_distance_matrix.csv"))
+    ).to_csv(os.path.join(out, f"{protein}_distance_matrix_labeled.csv"))
     with open(os.path.join(out, f"{protein}_cluster_summary.json"), "w") as fh:
         json.dump(summary, fh, indent=2)
 
-    # 4. score against the two references, attach the cluster id of each
-    #    prediction, and plot coloured by cluster.
-    df = scores_vs_references(
-        protein, experiment_folders, present_experiments,
-        reference_folder, metadata_file, out,
-    )
-
+    # attach the cluster id of each prediction to the reference scores and plot
+    # coloured by cluster.
     cluster_of = {key: int(c) for key, c in zip(keys, labels)}
-    # calc_tm_score_folders scores every prediction in each folder; keep only the
-    # ones that were actually pooled/clustered (relevant when --sample is used).
-    row_keys = list(zip(df["experiment"], df["model"].astype(int), df["seed"].astype(int)))
+    # the reference scores cover every prediction in each folder; keep only the
+    # ones actually pooled/clustered (relevant when --sample is used).
+    row_keys = list(
+        zip(scores["experiment"], scores["model"].astype(int), scores["seed"].astype(int))
+    )
     keep = [k in cluster_of for k in row_keys]
-    df = df[keep].copy()
+    df = scores[keep].copy()
     # store the string label ("Cluster 1", ...) so plot_tm_score treats it as a
     # categorical column (discrete Okabe-Ito colours + legend) and so the label
     # survives the CSV round-trip without being re-parsed as an integer.
@@ -469,8 +715,92 @@ def cluster_protein(
         experiment_name=f"{run_name} (clustered)",
         font_size=font_size,
         color_on="cluster",
+        legend_font_size=font_size + 6,
+    )
+
+    # shaded scatter: each point gets its prediction's unique shade (matching the
+    # shaded dendrogram). The legend shows one representative colour per cluster.
+    key_to_index = {k: i for i, k in enumerate(keys)}
+    kept_keys = [k for k in row_keys if k in cluster_of]
+    df_shaded = df.copy()
+    df_shaded["shade"] = [shade_of[key_to_index[k]] for k in kept_keys]
+    shaded_csv = os.path.join(out, f"{protein}_shades.csv")
+    df_shaded.to_csv(shaded_csv, index=False)
+
+    plot_tm_score(
+        data_file=shaded_csv,
+        save_file_name=f"{protein}_shades.png",
+        protein=protein,
+        output_dir=out,
+        experiment_name=f"{run_name} ",
+        font_size=font_size,
+        color_on="shade",
+        literal_colors=True,
+        legend_entries=[(cluster_label(c), base_of[c]) for c in sorted(base_of)],
+        legend_title="cluster",
+        legend_font_size=font_size + 6,
     )
     console.print(f"  [green]done[/] -> {out}")
+
+
+def cluster_protein(
+    protein: str,
+    experiment_folders: list[str],
+    data_dir: str,
+    output_dir: str,
+    run_name: str,
+    n_clusters: int = 2,
+    font_size: int = 8,
+    sample: int | None = None,
+    random_seed: int = 0,
+    force: bool = False,
+    tm_axis: tuple[float, float] | None = None,
+) -> None:
+    reference_folder = os.path.join(data_dir, protein, "references") + "/"
+    metadata_file = os.path.join(data_dir, "metadata.json")
+
+    out = os.path.join(output_dir, run_name)
+    os.makedirs(out, exist_ok=True)
+
+    console.print(f"[bold cyan]{run_name}[/] | [bold]{protein}[/]")
+
+    # reuse the cached distance matrix unless the inputs changed or --force was
+    # passed; otherwise pool the predictions and compute + cache it.
+    meta = _cache_meta(experiment_folders, sample, random_seed)
+    cache = None if force else load_matrix_cache(out, protein, meta)
+    if cache is None:
+        # per-protein RNG so a cache hit on one protein can't shift another
+        # protein's --sample draw; a given (random_seed, protein) is reproducible.
+        rng = random.Random(f"{random_seed}:{protein}")
+        cache = compute_matrix_cache(
+            protein, experiment_folders, out, sample, rng, meta,
+        )
+        if cache is None:
+            console.print("  [yellow]skip[/] fewer than 2 predictions to cluster")
+            return
+    else:
+        console.print("  [dim]reusing cached distance matrix[/]")
+
+    manifest, D = cache
+    if len(manifest) < n_clusters:
+        console.print(
+            f"  [yellow]skip[/] only {len(manifest)} predictions for {n_clusters} clusters"
+        )
+        return
+
+    # reference scores (reuses the shared plots/TM_Score cache; cheap)
+    scores = scores_vs_references(
+        protein,
+        experiment_folders,
+        set(manifest["experiment"]),
+        reference_folder,
+        metadata_file,
+    )
+
+    cluster_and_plot(
+        protein, run_name, out, manifest, D, scores, n_clusters, font_size,
+        tm_axis=tm_axis,
+    )
 
 
 def discover_proteins(experiment_folders: list[str], data_dir: str) -> list[str]:
@@ -536,6 +866,20 @@ def main():
         default=0,
         help="Seed for the --sample random draw (for reproducibility)",
     )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Recompute the distance matrix even if a matching cache exists",
+    )
+    parser.add_argument(
+        "--tm_axis",
+        nargs=2,
+        type=float,
+        metavar=("TM_BOTTOM", "TM_TOP"),
+        default=None,
+        help="Fix the dendrogram TM-score axis, bottom then top, "
+        "e.g. --tm_axis 1.0 0.5. May clip/squish the tree; default: auto",
+    )
     args = parser.parse_args()
 
     if args.all_experiments_in is not None:
@@ -567,9 +911,6 @@ def main():
         f"{len(experiment_folders)} experiment(s) as [cyan]{run_name}[/]{sample_note}"
     )
 
-    # one RNG for the whole run so a given --random_seed is fully reproducible
-    rng = random.Random(args.random_seed)
-
     for protein in proteins:
         try:
             cluster_protein(
@@ -581,7 +922,9 @@ def main():
                 n_clusters=args.n_clusters,
                 font_size=args.font_size,
                 sample=args.sample,
-                rng=rng,
+                random_seed=args.random_seed,
+                force=args.force,
+                tm_axis=tuple(args.tm_axis) if args.tm_axis is not None else None,
             )
         except Exception as e:  # keep going across proteins
             console.print(f"  [red]failed[/] {protein}: {e}")

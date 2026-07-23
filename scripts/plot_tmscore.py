@@ -177,12 +177,12 @@ def get_axis_lower_limit(protein: str) -> float:
         "CGRPR": 0.82,
         "FZD7": 0.85,
         "PTH1R": 0.75,
-        "ASCT2": 0.5,
+        "ASCT2": 0.55,
         "STP10": 0.8,
         "LAT1": 0.85,
         "ZnT8": 0.73,
         "MCT1": 0.70,
-        "CCR5": 0.85,
+        "CCR5": 0.88,
         "MurJ": 0.65,
         "PfMATE": 0.65,
         "SERT": 0.85
@@ -213,7 +213,11 @@ def plot_tm_score(
         font_size: int = 6,
         opacity: float = 1,
         color_on: str = None,
-        shape_on: str = None
+        shape_on: str = None,
+        legend_font_size: int = None,
+        literal_colors: bool = False,
+        legend_entries: list = None,
+        legend_title: str = None
 ) -> None:
     """
     :param data_file: path to csv file
@@ -232,6 +236,15 @@ def plot_tm_score(
     :param plot_guidelines: whether to plot guidelines with IF/OF TM score
     :param font_size: font size
     :param opacity of the points on the scatterplot
+    :param legend_font_size: font size for the categorical color legend only
+            (markers scale with it); defaults to font_size + 1
+    :param literal_colors: if True, the ``color_on`` column already holds
+            matplotlib colour strings that are used verbatim per point (no
+            colormap / colorbar). Useful for per-point shading.
+    :param legend_entries: optional list of ``(label, color)`` pairs; when given
+            (typically with ``literal_colors``) a compact legend of these is
+            drawn instead of the automatic colorbar/category legend.
+    :param legend_title: title for the ``legend_entries`` legend.
 
     Scatterplot of IF-OF / inactive-active TM-scores for different MSA depths.
     """
@@ -263,7 +276,13 @@ def plot_tm_score(
 
     # Non-numeric color columns (e.g. "experiment") can't be shown on a colorbar,
     # so they get a discrete Okabe-Ito color per category and a legend instead.
-    color_is_categorical = color_on != "nseq" and not pd.api.types.is_numeric_dtype(data[color_on])
+    # When literal_colors is set, the column holds ready-made colours; it is
+    # neither categorical nor numeric-mapped.
+    color_is_categorical = (
+        not literal_colors
+        and color_on != "nseq"
+        and not pd.api.types.is_numeric_dtype(data[color_on])
+    )
     if color_is_categorical:
         color_categories = np.sort(data[color_on].unique())
         _okabe = plt.cm.okabe_ito
@@ -327,7 +346,10 @@ def plot_tm_score(
             title_fontproperties=FontProperties(weight="bold", size=font_size + 3)
         )
     else:
-        if color_on == "nseq":
+        if literal_colors:
+            c_vals = list(data[color_on])
+            cmap, norm = None, None
+        elif color_on == "nseq":
             c_vals = [depth_color(d) for d in data[color_on]]
             cmap, norm = None, None
         elif color_is_categorical:
@@ -394,7 +416,31 @@ def plot_tm_score(
 
     unique_depths = np.sort(data[color_on].unique())
 
-    if color_on == "nseq":
+    if literal_colors:
+        depth_text = f"{', '.join([str(x) for x in np.sort(data['nseq'].unique()).tolist()])}"
+        if legend_entries:
+            legend_fs = font_size + 1 if legend_font_size is None else legend_font_size
+            handles = [
+                Line2D(
+                    [0], [0],
+                    marker="o",
+                    linestyle="",
+                    markerfacecolor=color,
+                    markeredgecolor="black",
+                    markersize=legend_fs - 3,
+                    label=str(label),
+                )
+                for label, color in legend_entries
+            ]
+            ax.legend(
+                handles=handles,
+                title=legend_title if legend_title is not None else "",
+                loc="center left",
+                bbox_to_anchor=(1.02, 0.5),
+                fontsize=legend_fs,
+                title_fontproperties=FontProperties(weight="bold", size=legend_fs + 1),
+            )
+    elif color_on == "nseq":
         if len(unique_depths) > 1:
             depth_text = ", ".join([str(x) for x in unique_depths])
 
@@ -431,6 +477,10 @@ def plot_tm_score(
     elif color_is_categorical:
         depth_text = f"{', '.join([str(x) for x in np.sort(data["nseq"].unique()).tolist()])}"
 
+        # legend text/marker size; defaults to font_size + 1, but callers can
+        # enlarge just the legend via legend_font_size without touching the axes.
+        legend_fs = font_size + 1 if legend_font_size is None else legend_font_size
+
         color_handles = [
             Line2D(
                 [0], [0],
@@ -438,7 +488,7 @@ def plot_tm_score(
                 linestyle="",
                 markerfacecolor=category_color_map[cat],
                 markeredgecolor="black",
-                markersize=6,
+                markersize=legend_fs - 3,
                 label=str(cat),
             )
             for cat in color_categories
@@ -452,8 +502,8 @@ def plot_tm_score(
             title=f"{color_on}:",
             loc="center left",
             bbox_to_anchor=(1.02, 0.5),
-            fontsize=font_size + 1,
-            title_fontproperties=FontProperties(weight="bold", size=font_size + 2),
+            fontsize=legend_fs,
+            title_fontproperties=FontProperties(weight="bold", size=legend_fs + 1),
         )
         if existing_legend is not None:
             ax.add_artist(existing_legend)
